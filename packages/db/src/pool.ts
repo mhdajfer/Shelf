@@ -9,6 +9,17 @@ export interface PoolOptions {
   connectionTimeoutMillis?: number;
 }
 
+const LOCAL_HOST = /@(localhost|127\.0\.0\.1|\[::1\]|postgres)[:/]/;
+
+/**
+ * Managed Postgres (Neon) terminates TLS and requires it; the local docker
+ * container does not offer it. Deciding from the host keeps every caller from
+ * carrying its own flag.
+ */
+export function requiresTls(connectionString: string): boolean {
+  return !LOCAL_HOST.test(connectionString);
+}
+
 export function createPool(options: PoolOptions): Pool {
   return new Pool({
     connectionString: options.connectionString,

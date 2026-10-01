@@ -41,4 +41,10 @@ export const baseConfig = tseslint.config(
   prettier,
 );
 
+/**
+ * Lets a package add its own rules without depending on typescript-eslint
+ * directly, which pnpm's strict isolation would not resolve for it.
+ */
+export const withBase = (...extra) => tseslint.config(...baseConfig, ...extra);
+
 export default baseConfig;
