@@ -1,0 +1,32 @@
+{
+  "name": "shelf",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.8.1",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:unit": "turbo run test:unit",
+    "test:integration": "turbo run test:integration",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:migrate": "pnpm --filter @shelf/db run migrate",
+    "db:seed": "pnpm --filter @shelf/db run seed",
+    "clean": "turbo run clean && rimraf node_modules"
+  },
+  "devDependencies": {
+    "@shelf/config": "workspace:*",
+    "eslint": "^9.39.0",
+    "prettier": "^3.6.2",
+    "rimraf": "^6.0.1",
+    "turbo": "^2.5.8",
+    "typescript": "^5.9.3"
+  }
+}

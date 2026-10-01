@@ -1,0 +1,11 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Postinstall scripts are opt-in. These are build-toolchain packages that fetch
+# or compile a platform binary; nothing else is allowed to run scripts.
+allowBuilds:
+  '@tailwindcss/oxide': true
+  esbuild: true
+  sharp: true
+  unrs-resolver: true

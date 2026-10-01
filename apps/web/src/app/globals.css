@@ -1,0 +1,5 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/jetbrains-mono';
+@import '@shelf/config/tailwind/theme.css';
+
+@source '../../src';
