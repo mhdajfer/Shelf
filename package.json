@@ -15,6 +15,7 @@
     "test": "turbo run test",
     "test:unit": "turbo run test:unit",
     "test:integration": "turbo run test:integration",
+    "test:e2e": "playwright test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:migrate": "pnpm --filter @shelf/db run migrate",
@@ -22,11 +23,13 @@
     "clean": "turbo run clean && rimraf node_modules"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
     "@shelf/config": "workspace:*",
-    "eslint": "^9.39.0",
-    "prettier": "^3.6.2",
-    "rimraf": "^6.0.1",
-    "turbo": "^2.5.8",
-    "typescript": "^5.9.3"
+    "eslint": "catalog:",
+    "prettier": "catalog:",
+    "rimraf": "catalog:",
+    "turbo": "^2.11.6",
+    "typescript": "catalog:"
   }
 }

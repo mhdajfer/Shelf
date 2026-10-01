@@ -57,7 +57,7 @@ shelf/
     api/          Express, REST + SSE, owns every secret
   packages/
     shared/       template parser, scoring, DTO schemas, constants
-    db/           Drizzle schema, migrations, seed          (phase 2)
+    db/           connection pool; Drizzle schema, migrations, seed  (phase 2)
     config/       tsconfig / ESLint / Prettier / Tailwind theme / brand
   docker-compose.yml
   .github/workflows/ci.yml
@@ -134,7 +134,7 @@ with no JavaScript and no flash of the wrong theme; the manual toggle only has t
 
 ## Running it
 
-Prerequisites: Node >= 20.11, pnpm, Docker.
+Prerequisites: Node >= 20.11, pnpm, Docker Desktop running.
 
 ```bash
 pnpm install
@@ -144,6 +144,30 @@ pnpm db:migrate             # phase 2
 pnpm db:seed                # phase 2
 pnpm dev                    # web on :3000, api on :4000
 ```
+
+### Dependency versions
+
+Toolchain versions are declared once, in the `catalog:` block of
+`pnpm-workspace.yaml`, and referenced as `"typescript": "catalog:"` by each
+package. Without that, `pnpm add` in one workspace resolves a different compiler
+than its neighbours — which is exactly what happened here before the catalog
+existed.
+
+Two deliberate pins:
+
+- **TypeScript stays on 5.9.** `typescript-eslint` 8 declares
+  `typescript: >=4.8.4 <6.1.0`, so moving to 7 would silently drop type-aware
+  linting — the rules that catch unsafe `any` flow. Revisit when it supports 7.
+- **`zod-openapi` instead of `@asteasolutions/zod-to-openapi`.** The schemas are
+  Zod 4; `zod-openapi` targets Zod 4 directly.
+
+`pnpm audit` is clean at `moderate`. One override is in place: `drizzle-kit`
+reaches esbuild 0.18 through the deprecated `@esbuild-kit` loader, carrying
+GHSA-67mh-4wv8-2f99.
+
+Password hashing uses `@node-rs/argon2` rather than the `argon2` package: same
+argon2id, prebuilt binaries, so no node-gyp toolchain is needed to clone and
+run on Windows.
 
 No Gemini key is required. Without `GEMINI_API_KEY` the API uses `FakeProvider`, and every
 model-backed tool still works end to end. Without `RESEND_API_KEY`, verification and reset links are

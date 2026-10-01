@@ -41,10 +41,6 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   transpilePackages: ['@shelf/shared', '@shelf/config'],
 
-  // Linting is its own CI step across the whole workspace; running it again
-  // inside `next build` would use a different config resolution.
-  eslint: { ignoreDuringBuilds: true },
-
   headers() {
     return Promise.resolve([{ source: '/:path*', headers: securityHeaders }]);
   },

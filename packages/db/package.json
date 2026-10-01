@@ -1,5 +1,5 @@
 {
-  "name": "@shelf/shared",
+  "name": "@shelf/db",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "migrations"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -19,15 +20,19 @@
     "lint": "eslint src",
     "test": "vitest run",
     "test:unit": "vitest run",
-    "test:watch": "vitest",
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
-    "zod": "catalog:"
+    "@shelf/shared": "workspace:*",
+    "drizzle-orm": "^0.45.3",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@shelf/config": "workspace:*",
     "@types/node": "catalog:",
+    "@types/pg": "^8.23.1",
+    "dotenv": "^18.0.5",
+    "drizzle-kit": "^0.31.11",
     "eslint": "catalog:",
     "rimraf": "catalog:",
     "typescript": "catalog:",
