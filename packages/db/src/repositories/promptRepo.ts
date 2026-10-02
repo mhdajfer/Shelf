@@ -162,6 +162,8 @@ export interface PublicListOptions {
   category?: Category;
   tags?: string[];
   modelHint?: string;
+  /** Restricts to one signed-up author, for their public profile. */
+  authorHandle?: string;
   limit?: number;
   offset?: number;
 }
@@ -194,6 +196,9 @@ function publicFilters(options: PublicListOptions): SQL[] {
   if (options.category !== undefined) clauses.push(sql`${prompts.category} = ${options.category}`);
   if (options.modelHint !== undefined && options.modelHint.trim() !== '') {
     clauses.push(sql`${prompts.modelHint} ILIKE ${`%${options.modelHint.trim()}%`}`);
+  }
+  if (options.authorHandle !== undefined) {
+    clauses.push(sql`${users.handle} = ${options.authorHandle.toLowerCase()}`);
   }
   clauses.push(...tagFilters(options.tags ?? []));
   return clauses;
@@ -387,7 +392,25 @@ export interface CreatePromptInput {
 }
 
 async function replaceTags(db: Executor, promptId: string, names: string[]): Promise<void> {
-  const normalised = [...new Set(names.map((name) => name.trim().toLowerCase()).filter(Boolean))];
+  const normalised = [
+    ...new Set(names.map((name) => name.trim().toLowerCase()).filter(Boolean)),
+  ].sort();
+
+  const current = await db
+    .select({ name: tags.name })
+    .from(promptTags)
+    .innerJoin(tags, eq(tags.id, promptTags.tagId))
+    .where(eq(promptTags.promptId, promptId))
+    .orderBy(asc(tags.name));
+
+  // Rewriting an unchanged set would still fire the triggers that refresh the
+  // search vector and bump updated_at.
+  if (
+    current.length === normalised.length &&
+    current.every((tag, index) => tag.name === normalised[index])
+  ) {
+    return;
+  }
 
   await db.delete(promptTags).where(eq(promptTags.promptId, promptId));
   if (normalised.length === 0) return;
@@ -455,6 +478,13 @@ async function create(db: Database, input: CreatePromptInput): Promise<string> {
 
     await replaceTags(tx, prompt.id, input.tags ?? []);
 
+    if (input.forkedFromId != null) {
+      await tx
+        .update(prompts)
+        .set({ forkCount: sql`${prompts.forkCount} + 1` })
+        .where(eq(prompts.id, input.forkedFromId));
+    }
+
     return prompt.id;
   });
 }
@@ -497,6 +527,121 @@ async function addVersion(
   });
 }
 
+/** The actor's own prompts, as a predicate. Null for an actor who can own nothing. */
+function ownedBy(actor: Actor): SQL | null {
+  switch (actor.type) {
+    case 'user':
+      return sql`${prompts.ownerId} = ${actor.userId}`;
+    case 'guest':
+      return sql`${prompts.guestId} = ${actor.guestId}`;
+    case 'anonymous':
+      return null;
+  }
+}
+
+/**
+ * The prompt, but only if the actor wrote it. Every write path starts here, so
+ * "can read" never quietly becomes "can edit". An admin is not an owner.
+ */
+async function findOwned(db: Database, actor: Actor, id: string): Promise<PromptSummary | null> {
+  const owner = ownedBy(actor);
+  if (owner === null) return null;
+
+  const rows = await baseSelect(db)
+    .where(and(sql`${prompts.id} = ${id}`, owner, sql`${prompts.status} <> 'deleted'`))
+    .limit(1);
+  const row = rows[0];
+  return row === undefined ? null : toSummary(row);
+}
+
+export interface ViewerState {
+  isOwner: boolean;
+  hasVoted: boolean;
+}
+
+/** What the listed prompts are to this actor, in one query for the whole page. */
+async function viewerStates(
+  db: Database,
+  actor: Actor,
+  ids: string[],
+): Promise<Map<string, ViewerState>> {
+  const states = new Map<string, ViewerState>();
+  if (ids.length === 0 || actor.type === 'anonymous') return states;
+
+  const owner = ownedBy(actor) ?? sql`false`;
+  const voter =
+    actor.type === 'user' ? sql`v.user_id = ${actor.userId}` : sql`v.guest_id = ${actor.guestId}`;
+
+  // Drizzle leaves column names unqualified in a single-table select, so the
+  // correlated subquery names the outer table explicitly; a bare "id" inside it
+  // would resolve to votes.id.
+  const rows = await db
+    .select({
+      id: prompts.id,
+      isOwner: sql<boolean>`${owner}`,
+      hasVoted: sql<boolean>`EXISTS (
+        SELECT 1 FROM votes v WHERE v.prompt_id = "prompts"."id" AND ${voter}
+      )`,
+    })
+    .from(prompts)
+    .where(inArray(prompts.id, ids));
+
+  for (const row of rows) states.set(row.id, { isOwner: row.isOwner, hasVoted: row.hasVoted });
+  return states;
+}
+
+async function countPublic(db: Database, options: PublicListOptions = {}): Promise<number> {
+  const clauses = publicFilters(options);
+  if (options.sort === 'top_week') {
+    clauses.push(sql`${prompts.createdAt} > now() - interval '7 days'`);
+  }
+  const rows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(prompts)
+    .leftJoin(users, eq(users.id, prompts.ownerId))
+    .where(and(...clauses));
+  return rows[0]?.count ?? 0;
+}
+
+async function countSearchPublic(db: Database, options: SearchOptions): Promise<number> {
+  const query = options.query.trim();
+  if (query === '') return 0;
+  const rows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(prompts)
+    .leftJoin(users, eq(users.id, prompts.ownerId))
+    .where(and(...publicFilters(options), matchQuery(query)));
+  return rows[0]?.count ?? 0;
+}
+
+export interface UpdatePromptInput {
+  title?: string;
+  description?: string | null;
+  category?: Category;
+  modelHint?: string | null;
+  visibility?: Visibility;
+  pinned?: boolean;
+  tags?: string[];
+}
+
+/** Callers establish ownership with findOwned first; this does not check it. */
+async function updateMeta(db: Database, id: string, input: UpdatePromptInput): Promise<void> {
+  await db.transaction(async (tx) => {
+    const values: Partial<typeof prompts.$inferInsert> = {};
+    if (input.title !== undefined) values.title = input.title;
+    if (input.description !== undefined) values.description = input.description;
+    if (input.category !== undefined) values.category = input.category;
+    if (input.modelHint !== undefined) values.modelHint = input.modelHint;
+    if (input.visibility !== undefined) values.visibility = input.visibility;
+    if (input.pinned !== undefined) values.pinnedAt = input.pinned ? new Date() : null;
+
+    if (Object.keys(values).length > 0) {
+      await tx.update(prompts).set(values).where(eq(prompts.id, id));
+    }
+    if (input.tags !== undefined) await replaceTags(tx, id, input.tags);
+  });
+}
+
 async function setStatus(db: Database, promptId: string, status: PromptStatus): Promise<void> {
   await db.update(prompts).set({ status }).where(eq(prompts.id, promptId));
 }
@@ -514,6 +659,11 @@ async function listCategoriesWithCounts(
 
 export const promptRepo = {
   findVisible,
+  findOwned,
+  viewerStates,
+  countPublic,
+  countSearchPublic,
+  updateMeta,
   listPublic,
   searchPublic,
   listOwned,

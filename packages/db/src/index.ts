@@ -21,7 +21,21 @@ export {
   type PromptVersionRecord,
   type PublicListOptions,
   type SearchOptions,
+  type UpdatePromptInput,
+  type ViewerState,
 } from './repositories/promptRepo.js';
+
+export {
+  creditRepo,
+  reportRepo,
+  voteRepo,
+  type CreditActor,
+  type CreditPool,
+  type Participant,
+  type ReportedPrompt,
+  type ReportOutcome,
+  type SpendResult,
+} from './repositories/activityRepo.js';
 
 export { collectionRepo, type CollectionRecord } from './repositories/collectionRepo.js';
 

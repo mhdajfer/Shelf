@@ -9,9 +9,9 @@ Two faces, one codebase:
 - **Your shelf** — for signed-in users. Private by default, with collections, version history,
   variables, test runs, and version comparison.
 
-> Build status: phase 3 of 9 complete. The monorepo, template engine, schema, the repository layer
-> that enforces privacy, and authentication are in place; the rest of the API surface and the UI
-> land in the phases listed in [Roadmap](#roadmap).
+> Build status: phase 4 of 9 complete. The data layer, authentication, and the prompt API are in
+> place; search, the UI, and model-backed test runs land in the phases listed in
+> [Roadmap](#roadmap).
 
 ## Why
 
@@ -218,6 +218,38 @@ prompt.
 Reads return `null` rather than throwing, so the route answers **404, not 403**, for another actor's
 prompt. 403 would confirm it exists.
 
+## Prompt API
+
+Every route lives under `/api/v1`. Reads take the actor from the session or guest cookie and go
+through `readableBy`; writes first establish ownership with `promptRepo.findOwned`.
+
+| Method and path                                  | What it does                                               |
+| ------------------------------------------------ | ---------------------------------------------------------- |
+| `GET /prompts`                                   | Public listing: `sort`, `category`, `tag`, `model`, `q`    |
+| `POST /prompts`                                  | Create. Private by default for users, public for guests    |
+| `GET /prompts/:id`                               | One prompt, with what it is to the viewer                  |
+| `PATCH /prompts/:id`                             | Edit. A changed body saves a new version                   |
+| `DELETE /prompts/:id`                            | Soft delete                                                |
+| `GET /prompts/:id/versions[/:versionId]`         | History                                                    |
+| `GET /prompts/:id/diff?from=&to=`                | Line diff; defaults to current against previous            |
+| `POST /prompts/:id/versions/:versionId/restore`  | Appends the old body as a new version                      |
+| `POST /prompts/:id/fork`                         | Copy onto your shelf, with lineage                         |
+| `PUT` / `DELETE /prompts/:id/vote`               | Upvote, idempotent per voter                               |
+| `POST /prompts/:id/report`                       | Report; three different reporters hide the prompt          |
+| `GET /shelf/prompts`                             | The signed-in user's own prompts                           |
+| `GET /credits`                                   | Today's remaining allowance                                |
+
+Status codes carry meaning: **404** for a prompt you cannot read (whether or not it exists),
+**403** for a public prompt you can read but do not own, **402** when the day's credits are spent,
+**429** when a rate limit trips.
+
+**Credits** are a check-and-debit under a per-actor Postgres advisory lock, so requests racing for
+the last credit cannot both win. A guest is metered by cookie *and* by hashed address, taking
+whichever count is higher. Signed-in users are not metered on creation, only on model calls.
+
+**`updated_at` means "the author changed this".** Migration `0002` narrows the trigger to authored
+columns, so an upvote, a pin, or a trending recompute no longer reshuffles the owner's shelf.
+
 ## Authentication
 
 Sessions are opaque random tokens in an `HttpOnly`, `SameSite=Lax` cookie. The database stores only
@@ -336,8 +368,8 @@ secrets are still in place.
 | 1     | Monorepo, configs, docker-compose, CI, template parser                | done   |
 | 2     | Drizzle schema, migrations, seed, repository layer, `privacy.spec.ts`  | done   |
 | 3     | Auth: email/password, Google, sessions, CSRF, verification, reset      | done   |
-| 4     | Prompts CRUD, versions, diff, restore, fork, votes, reports, credits   | next   |
-| 5     | Search, trending, public library pages with SSR and OG images          |        |
+| 4     | Prompts CRUD, versions, diff, restore, fork, votes, reports, credits   | done   |
+| 5     | Search, trending, public library pages with SSR and OG images          | next   |
 | 6     | Signed-in shelf UI: sidebar, collections, editor, variables, history   |        |
 | 7     | LLM provider layer, test run streaming, compare, tighten, suggestions  |        |
 | 8     | Command palette, shortcuts, import/export, dark mode toggle, admin     |        |
