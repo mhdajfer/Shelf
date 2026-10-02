@@ -245,8 +245,8 @@ Status codes carry meaning: **404** for a prompt you cannot read (whether or not
 **403** for a public prompt you can read but do not own, **402** when the day's credits are spent,
 **429** when a rate limit trips.
 
-**One fork per user.** A user can hold one live fork of a given prompt; a second `POST` answers
-409. The rule is a partial unique index on `(owner_id, forked_from_id)`, so requests that race
+**One fork per user.** A user can hold one live fork of a given prompt, and cannot fork a prompt
+they already own (including a fork they made); either `POST` answers 409. The rule is a partial unique index on `(owner_id, forked_from_id)`, so requests that race
 cannot both win. `DELETE /prompts/:id/fork` removes the caller's copy and frees the slot, and
 `fork_count` counts forks that still exist: deleting a fork, either way, lowers it.
 

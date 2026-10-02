@@ -375,6 +375,11 @@ export function createPromptRouter(deps: PromptDeps): Router {
       );
     }
 
+    // Forking is for taking someone else's prompt. A copy of your own would sit
+    // beside the original on the same shelf, which is exactly a duplicate.
+    if ((await promptRepo.findOwned(db, req.actor, source.id)) !== null) {
+      throw new AppError('conflict', 'This prompt is already on your shelf.');
+    }
     if ((await promptRepo.findForkId(db, user.id, source.id)) !== null) throw alreadyForked();
 
     let id: string;

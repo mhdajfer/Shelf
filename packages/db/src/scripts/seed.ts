@@ -156,7 +156,8 @@ async function main(): Promise<void> {
     // A few forks, so lineage and the "Forked from" link have something to show.
     const firstAuthor = authors[0];
     if (firstAuthor !== undefined) {
-      for (const sourceId of publicIds.slice(0, 4)) {
+      // Indexes 1 to 4 belong to the other authors: nobody forks their own prompt.
+      for (const sourceId of publicIds.slice(1, 5)) {
         const source = await promptRepo.findVisible(db, { type: 'anonymous' }, sourceId);
         if (source === null) continue;
         await promptRepo.create(db, {

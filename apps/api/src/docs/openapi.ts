@@ -236,7 +236,7 @@ export function buildOpenApiDocument(serverUrl: string): ReturnType<typeof creat
           post: {
             tags: ['Prompts'],
             summary: 'Fork a prompt onto your shelf',
-            description: `One live fork per user and prompt; a second attempt answers 409. ${WRITE}`,
+            description: `One live fork per user and prompt, and none of your own prompts; either answers 409. ${WRITE}`,
             requestParams: { path: promptPath },
             requestBody: body(forkPromptSchema),
             responses: { ...ok('Your copy.', '201'), ...failures(401, 403, 404, 409) },

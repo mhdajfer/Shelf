@@ -126,7 +126,8 @@ export default async function PromptPage({ params }: { params: Params }) {
           initialVoted={prompt.viewer.hasVoted}
           disabled={!votable}
         />
-        <ForkButton promptId={prompt.id} forkId={prompt.viewerForkId} />
+        {/* Your own prompt is already on your shelf; forking it would only copy it. */}
+        {!prompt.viewer.isOwner && <ForkButton promptId={prompt.id} forkId={prompt.viewerForkId} />}
         <Button asChild variant="ghost">
           <Link href={routes.promptHistory(prompt.id)}>
             <History />

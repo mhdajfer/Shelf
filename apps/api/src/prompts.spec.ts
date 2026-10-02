@@ -268,6 +268,24 @@ describe('forking', () => {
     expect(shelf.items).toHaveLength(1);
   });
 
+  it('refuses to fork your own prompt, including a fork you already made', async () => {
+    const source = await create(ada, { visibility: 'public' });
+    const own = await ada.post(`/prompts/${source.id}/fork`);
+    expect(own.status).toBe(409);
+    expect(own.body).toMatchObject({
+      error: { code: 'conflict', message: 'This prompt is already on your shelf.' },
+    });
+
+    // The path that produced a chain of copies: fork, then fork the fork.
+    const grace = await signedInBrowser(harness, 'grace@example.test');
+    const fork = promptOf(await grace.post(`/prompts/${source.id}/fork`));
+    expect((await grace.post(`/prompts/${fork.id}/fork`)).status).toBe(409);
+
+    const shelf = (await grace.get('/shelf/prompts')).body as PromptListDto;
+    expect(shelf.items.map((item) => item.id)).toEqual([fork.id]);
+    expect(promptOf(await grace.get(`/prompts/${fork.id}`)).forkCount).toBe(0);
+  });
+
   it('holds when fork requests race', async () => {
     const source = await create(ada, { visibility: 'public' });
     const grace = await signedInBrowser(harness, 'grace@example.test');

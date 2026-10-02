@@ -166,6 +166,12 @@ test.describe('the life of a prompt', () => {
     await expect(visitor.getByLabel('Title')).toHaveValue('Forkable');
     await expect(visitor.getByRole('radio', { name: /Private/ })).toBeChecked();
 
+    // On the fork's own page there is no Fork button: it is already theirs, and
+    // forking it again is how a shelf used to fill with copies.
+    await visitor.goto(visitor.url().replace(/\/edit$/, ''));
+    await expect(visitor.getByRole('link', { name: 'Edit' })).toBeVisible();
+    await expect(visitor.getByRole('button', { name: 'Fork', exact: true })).toHaveCount(0);
+
     // Back on the original there is nothing left to fork: the button now leads
     // to the copy, so the same prompt cannot land on a shelf twice.
     await visitor.goto(`/p/${id}`);

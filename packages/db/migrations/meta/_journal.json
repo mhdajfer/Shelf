@@ -29,6 +29,13 @@
       "when": 1790863751805,
       "tag": "0003_one_fork_per_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790863851805,
+      "tag": "0004_remove_self_forks",
+      "breakpoints": true
     }
   ]
 }
