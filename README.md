@@ -458,6 +458,15 @@ secrets are still in place.
 
 ## Known limitations
 
+- **The API integration tests crash intermittently on Node 24.15.0 on Windows.** This is a runtime
+  fault, not a test failure: the Node process exits with `0xC0000409` and no output, and vitest
+  reports "Worker exited unexpectedly". It needs Express and an HTTP client in the same process,
+  which is what supertest does. A 15-line script with bare Express and supertest reproduces it (5
+  crashes in 16 runs); on Node 22.23 the same script crashed 0 times in 16 and the full suite passed
+  6 runs in 6. The running API is not affected: it served 12,000 requests from a separate client
+  process on Node 24 without dying. CI runs Node 22, and `.nvmrc` pins it; use Node 22 to run
+  `pnpm test:integration` on Windows.
+
 - **Guest credits are a speed bump, not security.** Identity is a signed cookie plus an HMAC of the
   client IP. Clearing cookies from a new address resets the allowance. Turnstile raises the cost,
   the global daily LLM cap bounds the damage, and neither makes this airtight. Anything that must

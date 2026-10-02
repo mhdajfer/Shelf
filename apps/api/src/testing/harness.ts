@@ -1,4 +1,5 @@
-import type { Express } from 'express';
+import type { Server } from 'node:http';
+
 import request from 'supertest';
 
 import { createTestDatabase, type TestDatabase } from '@shelf/db/testing';
@@ -10,14 +11,15 @@ import { stubDeps } from './stubDeps.js';
 export type Agent = ReturnType<typeof request.agent>;
 
 export interface ApiHarness {
-  app: Express;
+  /** The app, already listening on an ephemeral port. */
+  app: Server;
   database: TestDatabase;
   /** Every email the app "sent", newest last. */
   outbox: EmailMessage[];
   /** A cookie-keeping client with a CSRF token already attached to writes. */
   browser: () => Promise<Browser>;
   /** Rebuilds the app with different dependencies over the same database. */
-  appWith: (overrides: Partial<AppDeps>) => Express;
+  appWith: (overrides: Partial<AppDeps>) => Server;
   close: () => Promise<void>;
 }
 
@@ -33,7 +35,7 @@ export interface Browser {
 
 export const url = (path: string): string => `${API_PREFIX}${path}`;
 
-export async function openBrowser(app: Express): Promise<Browser> {
+export async function openBrowser(app: Server): Promise<Browser> {
   const agent = request.agent(app);
   const response = await agent.get(url('/auth/csrf'));
   const csrf = (response.body as { csrfToken: string }).csrfToken;
@@ -53,8 +55,16 @@ export async function createApiHarness(overrides: Partial<AppDeps> = {}): Promis
   const database = await createTestDatabase();
   const email = createMemoryTransport();
 
-  const appWith = (extra: Partial<AppDeps>): Express =>
-    createApp(stubDeps({ db: database.db, email, ...overrides, ...extra }));
+  // One listening server per app, shared by every request. Handing supertest
+  // the bare Express app instead makes it open and close a server per request.
+  const servers: Server[] = [];
+  const appWith = (extra: Partial<AppDeps>): Server => {
+    const server = createApp(stubDeps({ db: database.db, email, ...overrides, ...extra })).listen(
+      0,
+    );
+    servers.push(server);
+    return server;
+  };
   const app = appWith({});
 
   return {
@@ -63,7 +73,18 @@ export async function createApiHarness(overrides: Partial<AppDeps> = {}): Promis
     outbox: email.sent,
     browser: () => openBrowser(app),
     appWith,
-    close: () => database.close(),
+    close: async () => {
+      await Promise.all(
+        servers.map(
+          (server) =>
+            new Promise<void>((resolve) => {
+              server.close(() => resolve());
+              server.closeAllConnections();
+            }),
+        ),
+      );
+      await database.close();
+    },
   };
 }
 
