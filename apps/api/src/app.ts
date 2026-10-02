@@ -1,16 +1,32 @@
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express } from 'express';
 import helmet from 'helmet';
 
+import type { Database } from '@shelf/db';
+
+import { csrfProtection } from './auth/csrf.js';
+import type { OAuthProvider } from './auth/google.js';
+import { identity } from './auth/identity.js';
 import { env } from './config/env.js';
+import type { EmailTransport } from './email/transport.js';
 import { AppError, errorHandler, notFoundHandler } from './http/errors.js';
 import { httpLogger } from './observability/logger.js';
+import { createAuthRouter } from './routes/auth.js';
 import { createHealthRouter, type HealthChecks } from './routes/health.js';
+import type { BotCheck } from './security/botCheck.js';
+import type { RateLimits } from './security/rateLimit.js';
 
 export const API_PREFIX = '/api/v1';
 
 export interface AppDeps {
   health: HealthChecks;
+  db: Database;
+  email: EmailTransport;
+  limits: RateLimits;
+  botCheck: BotCheck;
+  /** Null when Google credentials are not configured. */
+  google: OAuthProvider | null;
 }
 
 /**
@@ -49,9 +65,16 @@ export function createApp(deps: AppDeps): Express {
   );
 
   app.use(express.json({ limit: '64kb' }));
+  app.use(cookieParser());
   app.use(httpLogger);
 
   app.use(API_PREFIX, createHealthRouter(deps.health));
+
+  // Everything below knows who is asking and refuses forged writes.
+  app.use(identity(deps.db));
+  app.use(csrfProtection);
+
+  app.use(`${API_PREFIX}/auth`, createAuthRouter(deps));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

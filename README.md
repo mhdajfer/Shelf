@@ -9,9 +9,9 @@ Two faces, one codebase:
 - **Your shelf** — for signed-in users. Private by default, with collections, version history,
   variables, test runs, and version comparison.
 
-> Build status: phase 2 of 9 complete. The monorepo, template engine, schema, and the repository
-> layer that enforces privacy are in place; auth, the API surface, and the UI land in the phases
-> listed in [Roadmap](#roadmap).
+> Build status: phase 3 of 9 complete. The monorepo, template engine, schema, the repository layer
+> that enforces privacy, and authentication are in place; the rest of the API surface and the UI
+> land in the phases listed in [Roadmap](#roadmap).
 
 ## Why
 
@@ -218,6 +218,25 @@ prompt.
 Reads return `null` rather than throwing, so the route answers **404, not 403**, for another actor's
 prompt. 403 would confirm it exists.
 
+## Authentication
+
+Sessions are opaque random tokens in an `HttpOnly`, `SameSite=Lax` cookie. The database stores only
+the SHA-256 of each token, so a dump of `sessions` cannot be replayed. The same is true of emailed
+verification and reset tokens, which are single-use and consumed in one `UPDATE … RETURNING`.
+
+- **Passwords** are argon2id. A login for an unknown address still runs a verify against a throwaway
+  hash, and "wrong password", "no such account" and "Google-only account" share one message.
+- **CSRF** is a signed double-submit token: `GET /api/v1/auth/me` returns it, and every
+  state-changing request must echo it in `x-csrf-token`. The signature stops a sibling subdomain
+  from planting a matching pair.
+- **Admin is earned, not claimed.** An address in `ADMIN_EMAILS` gets the role when it is verified,
+  not at signup.
+- **Google sign-in** links to an existing account by verified email. If that account was registered
+  with a password but never verified, its password and sessions are discarded on link, so squatting
+  on someone's address does not survive them signing in with Google.
+- **Guests** get a signed id cookie the first time they do something that needs one, never on a
+  plain page view.
+
 ## Design system
 
 Tokens live in `packages/config`: `tailwind/theme.css` is the source of truth for the running UI,
@@ -316,8 +335,8 @@ secrets are still in place.
 | ----- | --------------------------------------------------------------------- | ------ |
 | 1     | Monorepo, configs, docker-compose, CI, template parser                | done   |
 | 2     | Drizzle schema, migrations, seed, repository layer, `privacy.spec.ts`  | done   |
-| 3     | Auth: email/password, Google, sessions, CSRF, verification, reset      | next   |
-| 4     | Prompts CRUD, versions, diff, restore, fork, votes, reports, credits   |        |
+| 3     | Auth: email/password, Google, sessions, CSRF, verification, reset      | done   |
+| 4     | Prompts CRUD, versions, diff, restore, fork, votes, reports, credits   | next   |
 | 5     | Search, trending, public library pages with SSR and OG images          |        |
 | 6     | Signed-in shelf UI: sidebar, collections, editor, variables, history   |        |
 | 7     | LLM provider layer, test run streaming, compare, tighten, suggestions  |        |

@@ -24,3 +24,15 @@ export {
 } from './repositories/promptRepo.js';
 
 export { collectionRepo, type CollectionRecord } from './repositories/collectionRepo.js';
+
+export {
+  userRepo,
+  USER_EMAIL_CONSTRAINT,
+  USER_HANDLE_CONSTRAINT,
+  type CreateUserInput,
+  type UserRecord,
+} from './repositories/userRepo.js';
+
+export { sessionRepo, type SessionRecord } from './repositories/sessionRepo.js';
+
+export { uniqueViolation } from './errors.js';

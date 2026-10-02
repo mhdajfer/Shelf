@@ -3,5 +3,5 @@
   "compilerOptions": {
     "tsBuildInfoFile": "dist/.tsbuildinfo.build"
   },
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts", "src/testing/**"]
 }
