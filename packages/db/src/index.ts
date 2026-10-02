@@ -54,4 +54,11 @@ export {
 
 export { sessionRepo, type SessionRecord } from './repositories/sessionRepo.js';
 
+export {
+  runRepo,
+  type RecordRunInput,
+  type RunRecord,
+  type RunStatus,
+} from './repositories/runRepo.js';
+
 export { uniqueViolation } from './errors.js';

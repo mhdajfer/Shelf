@@ -146,7 +146,12 @@ export default async function PromptPage({ params }: { params: Params }) {
           <PromptBody body={prompt.body} />
         </section>
 
-        <UsePanel body={prompt.body} />
+        <UsePanel
+          body={prompt.body}
+          {...(prompt.currentVersionId === null
+            ? {}
+            : { run: { promptId: prompt.id, versionId: prompt.currentVersionId } })}
+        />
       </div>
 
       {forks.length > 0 && (

@@ -16,10 +16,12 @@ import {
   type Category,
   type CreditsDto,
   type PromptDetailDto,
+  type SuggestionDto,
   type Visibility,
 } from '@shelf/shared';
 
 import { CodeEditor } from '@/components/code-editor';
+import { EditorTools, SuggestionList } from '@/components/editor-tools';
 import { Turnstile, turnstileEnabled } from '@/components/turnstile';
 import { Button } from '@/components/ui/button';
 import { describedBy, Field, Input, Textarea } from '@/components/ui/field';
@@ -139,6 +141,7 @@ export function PromptForm({ prompt }: { prompt?: PromptDetailDto }) {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<SuggestionDto[] | null>(null);
 
   const credits = useQuery({
     queryKey: ['credits'],
@@ -311,6 +314,11 @@ export function PromptForm({ prompt }: { prompt?: PromptDetailDto }) {
             invalid={errors.body !== undefined}
             placeholderText={'Write the prompt. Mark inputs as {{name}} or {{name:default}}.'}
           />
+          <EditorTools
+            body={draft.body}
+            onReplace={(body) => set('body', body)}
+            onSuggestions={setSuggestions}
+          />
           <div id="body-help" className="flex flex-col gap-1 text-sm">
             {errors.body !== undefined && (
               <p role="alert" className="text-danger">
@@ -464,6 +472,10 @@ export function PromptForm({ prompt }: { prompt?: PromptDetailDto }) {
             </ul>
           )}
         </section>
+
+        {suggestions !== null && (
+          <SuggestionList suggestions={suggestions} onDismiss={() => setSuggestions(null)} />
+        )}
 
         {draft.body.trim() !== '' && <UsePanel body={draft.body} heading="Preview" />}
       </aside>

@@ -9,9 +9,9 @@ Two faces, one codebase:
 - **Your shelf** — for signed-in users. Private by default, with collections, version history,
   variables, test runs, and version comparison.
 
-> Build status: phase 6 of 9 complete. The API, the public library, and the signed-in shelf with
-> its editor, collections, and version history are in place; model-backed test runs land next, per
-> the [Roadmap](#roadmap).
+> Build status: phase 7 of 9 complete. The API, the public library, the signed-in shelf, and
+> model-backed test runs, comparison, and editor tools are in place; power tools and admin land
+> next, per the [Roadmap](#roadmap).
 
 ## Why
 
@@ -253,6 +253,39 @@ whichever count is higher. Signed-in users are not metered on creation, only on 
 **`updated_at` means "the author changed this".** Migration `0002` narrows the trigger to authored
 columns, so an upvote, a pin, or a trending recompute no longer reshuffles the owner's shelf.
 
+## Model calls
+
+Everything model-backed goes through one interface, `LlmProvider`, with two implementations:
+`GeminiProvider` when `GEMINI_API_KEY` is set and `FakeProvider` when it is not. The fake streams
+word by word, takes time, honours cancellation, and reports token counts, so credits, refunds, SSE,
+and the UI are all exercised with no key and no network. The integration tests use it too.
+
+| Endpoint               | What it does                                                             |
+| ---------------------- | ------------------------------------------------------------------------ |
+| `POST /runs`           | Renders a version with its inputs, streams the answer as server-sent events |
+| `GET /prompts/:id/runs` | Your own earlier runs of a prompt                                       |
+| `POST /tools/tighten`  | Proposes a shorter rewrite; reports any `{{placeholder}}` it lost        |
+| `POST /tools/suggest`  | Returns up to five structured suggestions                                |
+
+A run is admitted in the order that costs least: rate limit, then the global daily ceiling, then the
+actor's own credit, which is debited before the call. Everything that can refuse happens **before
+the first byte**, so a refusal is ordinary JSON with a real status code (402, 404, 429, 503); once
+the stream is open, failure is an `error` event. A timeout or provider failure **refunds** the credit
+with a compensating ledger row. A run the user stops is not refunded, since the model was called and
+otherwise "start, read, stop" would be free.
+
+Runs are private to whoever made them. A run stores what its author typed into the variables, so
+not even the prompt's owner can list someone else's runs of it.
+
+`POST /runs` is a POST with a body and a CSRF header, which `EventSource` cannot send, so the web
+client reads the stream from `fetch` and parses the event framing itself (`lib/run-stream.ts`).
+Model output is rendered as Markdown through `react-markdown` with `rehype-sanitize`; an ESLint
+rule forbids `dangerouslySetInnerHTML` across the web app.
+
+**Comparing versions** runs two versions on the same inputs side by side, on the history page under
+the diff: the diff shows what changed in the prompt, the comparison shows what the change did to the
+answer.
+
 ## Search and ranking
 
 Search is Postgres full-text over the trigger-maintained `search_vector`, queried with
@@ -419,8 +452,8 @@ secrets are still in place.
 | 4     | Prompts CRUD, versions, diff, restore, fork, votes, reports, credits   | done   |
 | 5     | Search, trending, public library pages with SSR and OG images          | done   |
 | 6     | Signed-in shelf UI: sidebar, collections, editor, variables, history   | done   |
-| 7     | LLM provider layer, test run streaming, compare, tighten, suggestions  | next   |
-| 8     | Command palette, shortcuts, import/export, dark mode toggle, admin     |        |
+| 7     | LLM provider layer, test run streaming, compare, tighten, suggestions  | done   |
+| 8     | Command palette, shortcuts, import/export, dark mode toggle, admin     | next   |
 | 9     | Full test pass, accessibility audit, security checklist, deploy config |        |
 
 ## Known limitations

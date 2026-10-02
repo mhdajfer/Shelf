@@ -2,6 +2,7 @@ import type { Database } from '@shelf/db';
 
 import type { AppDeps } from '../app.js';
 import { createMemoryTransport } from '../email/transport.js';
+import { createFakeProvider } from '../llm/provider.js';
 import { noBotCheck } from '../security/botCheck.js';
 import { noRateLimits } from '../security/rateLimit.js';
 
@@ -17,6 +18,7 @@ export function stubDeps(overrides: Partial<AppDeps> = {}): AppDeps {
     limits: noRateLimits,
     botCheck: noBotCheck,
     google: null,
+    llm: createFakeProvider({ chunkDelayMs: 0 }),
     ...overrides,
   };
 }

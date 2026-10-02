@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import type { PromptVersionDto } from '@shelf/shared';
 
+import { CompareRuns } from '@/components/compare-runs';
 import { PromptBody } from '@/components/prompt-body';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api-client';
@@ -87,6 +88,9 @@ function Diff({ from, to }: { from: PromptVersionDto; to: PromptVersionDto }) {
 
 const selectClass =
   'h-8 rounded-md border border-border-strong bg-surface-raised px-2 text-sm text-text';
+
+const older = (a: PromptVersionDto, b: PromptVersionDto) => (a.number < b.number ? a : b);
+const newer = (a: PromptVersionDto, b: PromptVersionDto) => (a.number < b.number ? b : a);
 
 export function VersionHistory({
   promptId,
@@ -205,10 +209,16 @@ export function VersionHistory({
           </>
         ) : (
           // Older on the left of the comparison, whichever way the reader chose.
-          <Diff
-            from={compare.number < selected.number ? compare : selected}
-            to={compare.number < selected.number ? selected : compare}
-          />
+          <>
+            <Diff from={older(compare, selected)} to={newer(compare, selected)} />
+            <CompareRuns
+              // Fresh inputs and outputs for each pair of versions.
+              key={`${compare.id}:${selected.id}`}
+              promptId={promptId}
+              older={older(compare, selected)}
+              newer={newer(compare, selected)}
+            />
+          </>
         )}
       </div>
     </div>

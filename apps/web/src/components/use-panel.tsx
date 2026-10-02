@@ -2,14 +2,105 @@
 
 import { useId, useMemo, useState } from 'react';
 
-import { initialValues, missingVariables, parseTemplate, renderParsed } from '@shelf/shared';
+import {
+  missingVariables,
+  parseTemplate,
+  renderParsed,
+  type TemplateVariable,
+} from '@shelf/shared';
 
 import { CopyButton } from '@/components/copy-button';
+import { RunSection, type RunTarget } from '@/components/run-section';
 import { Input, Label, Textarea } from '@/components/ui/field';
 
 /** Long defaults and paste-heavy names get a multi-line field. */
 const MULTILINE =
   /text|content|notes|draft|code|body|paragraph|document|source|input|changelog|transcript|diff/i;
+
+export interface TemplateValues {
+  /** What each field currently shows: the typed value, else the default. */
+  shown: (variable: TemplateVariable) => string;
+  /** What to send or render with: `undefined` for a field left untouched. */
+  supplied: Record<string, string | undefined>;
+  update: (name: string, value: string) => void;
+}
+
+/**
+ * The state behind a set of variable fields. A field the reader has not
+ * touched is `undefined`, so the renderer falls back to its default, or keeps
+ * the placeholder visible when there is none; a field they cleared is an empty
+ * value and overrides the default.
+ */
+export function useTemplateValues(variables: TemplateVariable[]): TemplateValues {
+  const [values, setValues] = useState<Record<string, string>>({});
+
+  const supplied = useMemo(
+    () =>
+      Object.fromEntries(
+        variables.map((variable) => [variable.name, values[variable.name]]),
+      ) as Record<string, string | undefined>,
+    [variables, values],
+  );
+
+  return {
+    shown: (variable) => values[variable.name] ?? variable.defaultValue ?? '',
+    supplied,
+    update: (name, value) => setValues((current) => ({ ...current, [name]: value })),
+  };
+}
+
+/** Untouched fields are left out, so the API applies each variable's default. */
+export function definedOnly(supplied: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(supplied).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  );
+}
+
+export function VariableFields({
+  variables,
+  values,
+  disabled = false,
+}: {
+  variables: TemplateVariable[];
+  values: Pick<TemplateValues, 'shown' | 'update'>;
+  disabled?: boolean;
+}) {
+  const id = useId();
+  if (variables.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {variables.map((variable) => {
+        const fieldId = `${id}-${variable.name}`;
+        const current = values.shown(variable);
+        const multiline = MULTILINE.test(variable.name) || current.length > 60;
+        return (
+          <div key={variable.name} className="flex flex-col gap-1">
+            <Label htmlFor={fieldId} className="font-mono text-[0.8125rem] font-normal">
+              {variable.name}
+            </Label>
+            {multiline ? (
+              <Textarea
+                id={fieldId}
+                value={current}
+                onChange={(event) => values.update(variable.name, event.target.value)}
+                rows={3}
+                disabled={disabled}
+              />
+            ) : (
+              <Input
+                id={fieldId}
+                value={current}
+                onChange={(event) => values.update(variable.name, event.target.value)}
+                disabled={disabled}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /**
  * Fill in a prompt's variables and copy the result. The rendered text is built
@@ -19,37 +110,19 @@ const MULTILINE =
 export function UsePanel({
   body,
   heading = 'Use this prompt',
+  run,
 }: {
   body: string;
   heading?: string;
+  /** When given, the panel can also send the filled-in prompt to the model. */
+  run?: RunTarget;
 }) {
   const id = useId();
   const parsed = useMemo(() => parseTemplate(body), [body]);
-  const [values, setValues] = useState<Record<string, string>>(() => initialValues(parsed));
+  const values = useTemplateValues(parsed.variables);
 
-  // A field the reader has not touched and that has no default counts as
-  // missing, so its placeholder stays visible in the preview.
-  const [touched, setTouched] = useState<Set<string>>(() => new Set());
-  const supplied = useMemo(
-    () =>
-      Object.fromEntries(
-        parsed.variables.map((variable) => [
-          variable.name,
-          touched.has(variable.name) || variable.defaultValue !== undefined
-            ? values[variable.name]
-            : undefined,
-        ]),
-      ),
-    [parsed, values, touched],
-  );
-
-  const rendered = renderParsed(parsed, supplied, { onMissing: 'keep' });
-  const missing = missingVariables(parsed, supplied);
-
-  function update(name: string, value: string) {
-    setValues((current) => ({ ...current, [name]: value }));
-    setTouched((current) => new Set(current).add(name));
-  }
+  const rendered = renderParsed(parsed, values.supplied, { onMissing: 'keep' });
+  const missing = missingVariables(parsed, values.supplied);
 
   return (
     <section
@@ -63,36 +136,7 @@ export function UsePanel({
       {parsed.variables.length === 0 ? (
         <p className="text-sm text-text-muted">This prompt has no variables. Copy it as it is.</p>
       ) : (
-        <div className="flex flex-col gap-3">
-          {parsed.variables.map((variable) => {
-            const fieldId = `${id}-${variable.name}`;
-            // A variable added after the panel mounted has no entry yet, so its
-            // default stands in until the reader types.
-            const current = values[variable.name] ?? variable.defaultValue ?? '';
-            const multiline = MULTILINE.test(variable.name) || current.length > 60;
-            return (
-              <div key={variable.name} className="flex flex-col gap-1">
-                <Label htmlFor={fieldId} className="font-mono text-[0.8125rem] font-normal">
-                  {variable.name}
-                </Label>
-                {multiline ? (
-                  <Textarea
-                    id={fieldId}
-                    value={current}
-                    onChange={(event) => update(variable.name, event.target.value)}
-                    rows={3}
-                  />
-                ) : (
-                  <Input
-                    id={fieldId}
-                    value={current}
-                    onChange={(event) => update(variable.name, event.target.value)}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <VariableFields variables={parsed.variables} values={values} />
       )}
 
       <div className="flex flex-col gap-2">
@@ -109,6 +153,10 @@ export function UsePanel({
           </p>
         )}
       </div>
+
+      {run !== undefined && (
+        <RunSection target={run} inputs={definedOnly(values.supplied)} missing={missing} />
+      )}
     </section>
   );
 }

@@ -5,12 +5,15 @@ import { createEmailTransport } from './email/transport.js';
 import { connectDatabase } from './infra/database.js';
 import { connectRedis } from './infra/redis.js';
 import { startScheduler } from './jobs/scheduler.js';
+import { createLlmProvider } from './llm/provider.js';
 import { logger } from './observability/logger.js';
 import { createBotCheck } from './security/botCheck.js';
 import { createRateLimits } from './security/rateLimit.js';
 
 const database = connectDatabase();
 const redis = connectRedis();
+
+const llm = createLlmProvider();
 
 const server = createApp({
   health: { database: database.ping, redis: redis.ping },
@@ -19,8 +22,12 @@ const server = createApp({
   limits: createRateLimits(redis.client),
   botCheck: createBotCheck(),
   google: createGoogleProvider(),
+  llm,
 }).listen(env.API_PORT, () => {
-  logger.info({ port: env.API_PORT, env: env.NODE_ENV }, 'api listening');
+  logger.info(
+    { port: env.API_PORT, env: env.NODE_ENV, llm: llm.name, model: llm.model },
+    'api listening',
+  );
 });
 
 const stopScheduler = startScheduler(database.db);
