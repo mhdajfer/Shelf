@@ -178,6 +178,8 @@ export interface PromptDto {
 export interface PromptDetailDto extends PromptDto {
   /** Present only when the source still exists and the viewer may read it. */
   forkedFrom: { id: string; title: string; author: PromptAuthorDto } | null;
+  /** The viewer's own live fork of this prompt, if they have one. */
+  viewerForkId: string | null;
 }
 
 export interface PromptVersionDto {

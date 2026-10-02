@@ -86,8 +86,12 @@ export async function toPromptDetailDto(
       ? null
       : await promptRepo.findVisible(db, actor, prompt.forkedFromId);
 
+  const viewerForkId =
+    actor.type === 'user' ? await promptRepo.findForkId(db, actor.userId, prompt.id) : null;
+
   return {
     ...dto,
+    viewerForkId,
     forkedFrom:
       source === null ? null : { id: source.id, title: source.title, author: source.author },
   };

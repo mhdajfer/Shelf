@@ -659,6 +659,46 @@ async function updateMeta(db: Database, id: string, input: UpdatePromptInput): P
   });
 }
 
+export const FORK_CONSTRAINT = 'prompts_one_fork_per_owner_key';
+
+/** The user's live fork of a prompt, if they have one. */
+async function findForkId(db: Executor, userId: string, sourceId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: prompts.id })
+    .from(prompts)
+    .where(
+      and(
+        eq(prompts.ownerId, userId),
+        eq(prompts.forkedFromId, sourceId),
+        sql`${prompts.status} <> 'deleted'`,
+      ),
+    )
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/**
+ * Soft-deletes a prompt. If it was a fork, the source's fork count goes down
+ * with it, so the count always means forks that still exist. Callers establish
+ * ownership first.
+ */
+async function softDelete(db: Database, promptId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [removed] = await tx
+      .update(prompts)
+      .set({ status: 'deleted' })
+      .where(and(eq(prompts.id, promptId), sql`${prompts.status} <> 'deleted'`))
+      .returning({ forkedFromId: prompts.forkedFromId });
+
+    if (removed?.forkedFromId != null) {
+      await tx
+        .update(prompts)
+        .set({ forkCount: sql`GREATEST(${prompts.forkCount} - 1, 0)` })
+        .where(eq(prompts.id, removed.forkedFromId));
+    }
+  });
+}
+
 async function setStatus(db: Database, promptId: string, status: PromptStatus): Promise<void> {
   await db.update(prompts).set({ status }).where(eq(prompts.id, promptId));
 }
@@ -807,6 +847,8 @@ export const promptRepo = {
   countPublic,
   countSearchPublic,
   updateMeta,
+  findForkId,
+  softDelete,
   recomputeTrending,
   listTopTags,
   listSitemapEntries,

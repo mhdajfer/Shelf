@@ -83,6 +83,10 @@ export const prompts = pgTable(
     index('prompts_owner_idx').on(table.ownerId, table.updatedAt.desc()),
     index('prompts_guest_idx').on(table.guestId),
     index('prompts_forked_from_idx').on(table.forkedFromId),
+    // One live fork of a prompt per user; a deleted fork frees the slot.
+    uniqueIndex('prompts_one_fork_per_owner_key')
+      .on(table.ownerId, table.forkedFromId)
+      .where(sql`forked_from_id IS NOT NULL AND status <> 'deleted'`),
   ],
 );
 

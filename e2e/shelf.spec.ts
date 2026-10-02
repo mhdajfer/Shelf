@@ -165,6 +165,19 @@ test.describe('the life of a prompt', () => {
     await visitor.waitForURL(/\/p\/[0-9a-f-]{36}\/edit$/);
     await expect(visitor.getByLabel('Title')).toHaveValue('Forkable');
     await expect(visitor.getByRole('radio', { name: /Private/ })).toBeChecked();
+
+    // Back on the original there is nothing left to fork: the button now leads
+    // to the copy, so the same prompt cannot land on a shelf twice.
+    await visitor.goto(`/p/${id}`);
+    await expect(visitor.getByRole('button', { name: 'Fork', exact: true })).toHaveCount(0);
+    await expect(visitor.getByRole('link', { name: 'Your fork' })).toBeVisible();
+
+    // Reverting removes the copy and brings the Fork button back.
+    await visitor.getByRole('button', { name: 'Remove fork' }).click();
+    await visitor.getByRole('dialog').getByRole('button', { name: 'Remove fork' }).click();
+    await expect(visitor.getByRole('button', { name: 'Fork', exact: true })).toBeVisible();
+    await visitor.goto('/shelf');
+    await expect(visitor.getByText('Your shelf is empty.')).toBeVisible();
     await other.close();
 
     await page.reload();

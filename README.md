@@ -232,7 +232,7 @@ through `readableBy`; writes first establish ownership with `promptRepo.findOwne
 | `GET /prompts/:id/versions[/:versionId]`         | History                                                    |
 | `GET /prompts/:id/diff?from=&to=`                | Line diff; defaults to current against previous            |
 | `POST /prompts/:id/versions/:versionId/restore`  | Appends the old body as a new version                      |
-| `POST /prompts/:id/fork`                         | Copy onto your shelf, with lineage                         |
+| `POST` / `DELETE /prompts/:id/fork`              | Fork onto your shelf, with lineage; undo it                |
 | `PUT` / `DELETE /prompts/:id/vote`               | Upvote, idempotent per voter                               |
 | `POST /prompts/:id/report`                       | Report; three different reporters hide the prompt          |
 | `GET /shelf/prompts`                             | The signed-in user's own prompts                           |
@@ -244,6 +244,11 @@ through `readableBy`; writes first establish ownership with `promptRepo.findOwne
 Status codes carry meaning: **404** for a prompt you cannot read (whether or not it exists),
 **403** for a public prompt you can read but do not own, **402** when the day's credits are spent,
 **429** when a rate limit trips.
+
+**One fork per user.** A user can hold one live fork of a given prompt; a second `POST` answers
+409. The rule is a partial unique index on `(owner_id, forked_from_id)`, so requests that race
+cannot both win. `DELETE /prompts/:id/fork` removes the caller's copy and frees the slot, and
+`fork_count` counts forks that still exist: deleting a fork, either way, lowers it.
 
 **Credits** are a check-and-debit under a per-actor Postgres advisory lock, so requests racing for
 the last credit cannot both win. A guest is metered by cookie *and* by hashed address, taking

@@ -126,7 +126,7 @@ export default async function PromptPage({ params }: { params: Params }) {
           initialVoted={prompt.viewer.hasVoted}
           disabled={!votable}
         />
-        <ForkButton promptId={prompt.id} />
+        <ForkButton promptId={prompt.id} forkId={prompt.viewerForkId} />
         <Button asChild variant="ghost">
           <Link href={routes.promptHistory(prompt.id)}>
             <History />

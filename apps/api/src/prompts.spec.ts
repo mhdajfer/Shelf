@@ -250,6 +250,85 @@ describe('forking', () => {
     expect(promptOf(await ada.get(`/prompts/${source.id}`)).forkCount).toBe(1);
   });
 
+  it('allows one fork per user, and says so on a second attempt', async () => {
+    const source = await create(ada, { visibility: 'public' });
+    const grace = await signedInBrowser(harness, 'grace@example.test');
+
+    const first = promptOf(await grace.post(`/prompts/${source.id}/fork`));
+    const second = await grace.post(`/prompts/${source.id}/fork`);
+    expect(second.status).toBe(409);
+    expect(second.body).toMatchObject({ error: { code: 'conflict' } });
+
+    // The source tells her which copy is hers, and tells nobody else.
+    expect(promptOf(await grace.get(`/prompts/${source.id}`)).viewerForkId).toBe(first.id);
+    expect(promptOf(await ada.get(`/prompts/${source.id}`)).viewerForkId).toBeNull();
+    expect(promptOf(await ada.get(`/prompts/${source.id}`)).forkCount).toBe(1);
+
+    const shelf = (await grace.get('/shelf/prompts')).body as PromptListDto;
+    expect(shelf.items).toHaveLength(1);
+  });
+
+  it('holds when fork requests race', async () => {
+    const source = await create(ada, { visibility: 'public' });
+    const grace = await signedInBrowser(harness, 'grace@example.test');
+
+    const responses = await Promise.all(
+      Array.from({ length: 5 }, () => grace.post(`/prompts/${source.id}/fork`)),
+    );
+    expect(responses.map((response) => response.status).sort()).toEqual([201, 409, 409, 409, 409]);
+    expect(promptOf(await ada.get(`/prompts/${source.id}`)).forkCount).toBe(1);
+  });
+
+  it('lets different users each fork the same prompt', async () => {
+    const source = await create(ada, { visibility: 'public' });
+    for (const email of ['grace@example.test', 'linus@example.test']) {
+      const user = await signedInBrowser(harness, email);
+      expect((await user.post(`/prompts/${source.id}/fork`)).status).toBe(201);
+    }
+    expect(promptOf(await ada.get(`/prompts/${source.id}`)).forkCount).toBe(2);
+  });
+
+  it('undoes a fork, after which the prompt can be forked again', async () => {
+    const source = await create(ada, { visibility: 'public' });
+    const grace = await signedInBrowser(harness, 'grace@example.test');
+    const fork = promptOf(await grace.post(`/prompts/${source.id}/fork`));
+
+    expect((await grace.delete(`/prompts/${source.id}/fork`)).status).toBe(204);
+    expect((await grace.get(`/prompts/${fork.id}`)).status).toBe(404);
+    expect(promptOf(await grace.get(`/prompts/${source.id}`))).toMatchObject({
+      viewerForkId: null,
+      forkCount: 0,
+    });
+
+    // Undoing twice is harmless, and the slot is free again.
+    expect((await grace.delete(`/prompts/${source.id}/fork`)).status).toBe(204);
+    expect((await grace.post(`/prompts/${source.id}/fork`)).status).toBe(201);
+    expect(promptOf(await ada.get(`/prompts/${source.id}`)).forkCount).toBe(1);
+  });
+
+  it("only ever removes the caller's own fork", async () => {
+    const source = await create(ada, { visibility: 'public' });
+    const grace = await signedInBrowser(harness, 'grace@example.test');
+    const linus = await signedInBrowser(harness, 'linus@example.test');
+    const graceFork = promptOf(await grace.post(`/prompts/${source.id}/fork`));
+
+    // Linus has no fork; his undo must not touch hers. Nor may the author's.
+    await linus.delete(`/prompts/${source.id}/fork`);
+    await ada.delete(`/prompts/${source.id}/fork`);
+    expect((await grace.get(`/prompts/${graceFork.id}`)).status).toBe(200);
+    expect(promptOf(await ada.get(`/prompts/${source.id}`)).forkCount).toBe(1);
+  });
+
+  it('frees the slot, and the count, when a fork is deleted the ordinary way', async () => {
+    const source = await create(ada, { visibility: 'public' });
+    const grace = await signedInBrowser(harness, 'grace@example.test');
+    const fork = promptOf(await grace.post(`/prompts/${source.id}/fork`));
+
+    await grace.delete(`/prompts/${fork.id}`);
+    expect(promptOf(await ada.get(`/prompts/${source.id}`)).forkCount).toBe(0);
+    expect((await grace.post(`/prompts/${source.id}/fork`)).status).toBe(201);
+  });
+
   it('requires an account', async () => {
     const source = await create(ada, { visibility: 'public' });
     const guest = await harness.browser();

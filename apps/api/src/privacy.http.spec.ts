@@ -119,6 +119,7 @@ describe.each(OUTSIDERS)('%s', (_label, open) => {
   it('cannot fork, vote on, or report it, and learns nothing from trying', async () => {
     for (const response of [
       await outsider.post(`/prompts/${secretId}/fork`),
+      await outsider.delete(`/prompts/${secretId}/fork`),
       await outsider.put(`/prompts/${secretId}/vote`),
       await outsider.post(`/prompts/${secretId}/report`, { reason: 'I should not see this.' }),
       await outsider.get(`/prompts/${secretId}/forks`),

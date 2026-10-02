@@ -12,6 +12,7 @@ export { ANONYMOUS, guestActor, isAdmin, userActor, type Actor } from './reposit
 
 export {
   promptRepo,
+  FORK_CONSTRAINT,
   MAX_PAGE_SIZE,
   type AddVersionInput,
   type CreatePromptInput,

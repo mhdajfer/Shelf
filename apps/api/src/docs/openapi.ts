@@ -236,10 +236,20 @@ export function buildOpenApiDocument(serverUrl: string): ReturnType<typeof creat
           post: {
             tags: ['Prompts'],
             summary: 'Fork a prompt onto your shelf',
-            description: WRITE,
+            description: `One live fork per user and prompt; a second attempt answers 409. ${WRITE}`,
             requestParams: { path: promptPath },
             requestBody: body(forkPromptSchema),
             responses: { ...ok('Your copy.', '201'), ...failures(401, 403, 404, 409) },
+          },
+          delete: {
+            tags: ['Prompts'],
+            summary: 'Undo your fork of a prompt',
+            description: `Removes your copy from your shelf. ${WRITE}`,
+            requestParams: { path: promptPath },
+            responses: {
+              ...ok('Removed, or there was nothing to remove.', '204'),
+              ...failures(401, 404),
+            },
           },
         },
         '/prompts/{id}/forks': {

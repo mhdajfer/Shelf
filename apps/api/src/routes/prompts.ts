@@ -3,8 +3,10 @@ import { Router, type Request, type Response } from 'express';
 
 import {
   creditRepo,
+  FORK_CONSTRAINT,
   promptRepo,
   reportRepo,
+  uniqueViolation,
   voteRepo,
   type CreatePromptInput,
   type Database,
@@ -46,6 +48,9 @@ export interface PromptDeps {
 }
 
 const forbidden = (message: string): AppError => new AppError('forbidden', message);
+
+const alreadyForked = (): AppError =>
+  new AppError('conflict', 'You already have a fork of this prompt on your shelf.');
 
 const clientKey = (req: Request): string => req.user?.id ?? req.ip ?? 'unknown';
 
@@ -280,7 +285,7 @@ export function createPromptRouter(deps: PromptDeps): Router {
   router.delete('/prompts/:id', async (req, res) => {
     const prompt = await editable(req);
     await limits.consume('write', clientKey(req));
-    await promptRepo.setStatus(db, prompt.id, 'deleted');
+    await promptRepo.softDelete(db, prompt.id);
     res.status(204).end();
   });
 
@@ -370,20 +375,44 @@ export function createPromptRouter(deps: PromptDeps): Router {
       );
     }
 
-    const id = await promptRepo.create(db, {
-      author: { type: 'user', userId: user.id },
-      visibility,
-      title: source.title,
-      description: source.description,
-      category: source.category as Category,
-      modelHint: source.modelHint,
-      body: source.body,
-      variables: source.variables,
-      tags: source.tags,
-      forkedFromId: source.id,
-      note: `Forked from ${source.author.handle}`,
-    });
+    if ((await promptRepo.findForkId(db, user.id, source.id)) !== null) throw alreadyForked();
+
+    let id: string;
+    try {
+      id = await promptRepo.create(db, {
+        author: { type: 'user', userId: user.id },
+        visibility,
+        title: source.title,
+        description: source.description,
+        category: source.category as Category,
+        modelHint: source.modelHint,
+        body: source.body,
+        variables: source.variables,
+        tags: source.tags,
+        forkedFromId: source.id,
+        note: `Forked from ${source.author.handle}`,
+      });
+    } catch (error) {
+      // Two requests raced past the check above; the unique index stopped the second.
+      if (uniqueViolation(error) === FORK_CONSTRAINT) throw alreadyForked();
+      throw error;
+    }
     await detail(req, res, id, 201);
+  });
+
+  /**
+   * Undoes a fork: removes the caller's copy of this prompt from their shelf.
+   * Addressed by the source, so the button that forked is the button that
+   * reverts. Idempotent: with no fork to remove it still answers 204.
+   */
+  router.delete('/prompts/:id/fork', async (req, res) => {
+    const user = requireUser(req);
+    const source = await readable(req);
+    await limits.consume('write', user.id);
+
+    const forkId = await promptRepo.findForkId(db, user.id, source.id);
+    if (forkId !== null) await promptRepo.softDelete(db, forkId);
+    res.status(204).end();
   });
 
   router.get('/prompts/:id/forks', async (req, res) => {

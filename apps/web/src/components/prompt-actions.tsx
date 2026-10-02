@@ -1,6 +1,7 @@
 'use client';
 
-import { Flag, GitFork } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Flag, GitFork, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
@@ -16,10 +17,16 @@ import { ApiError, errorMessage } from '@/lib/api-error';
 import { routes } from '@/lib/routes';
 import { useSession } from '@/lib/session';
 
-export function ForkButton({ promptId }: { promptId: string }) {
+/**
+ * Fork, and its undo. A user has at most one fork of a prompt, so once they
+ * have one the button becomes a link to it, with the option to remove it.
+ */
+export function ForkButton({ promptId, forkId }: { promptId: string; forkId: string | null }) {
   const { user } = useSession();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [pending, setPending] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   if (user === null) {
     return (
@@ -45,15 +52,67 @@ export function ForkButton({ promptId }: { promptId: string }) {
       router.push(routes.editPrompt(prompt.id));
     } catch (error) {
       toast.error(errorMessage(error));
+      // A conflict means a fork already exists, made in another tab. Reloading
+      // the page data swaps this button for the link to it.
+      router.refresh();
       setPending(false);
     }
   }
 
+  async function removeFork() {
+    setPending(true);
+    try {
+      await api(`/prompts/${promptId}/fork`, { method: 'DELETE' });
+      setConfirming(false);
+      toast.success('Fork removed from your shelf');
+      await queryClient.invalidateQueries({ queryKey: ['shelf'] });
+      router.refresh();
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (forkId === null) {
+    return (
+      <Button onClick={() => void fork()} disabled={pending}>
+        <GitFork />
+        {pending ? 'Forking…' : 'Fork'}
+      </Button>
+    );
+  }
+
   return (
-    <Button onClick={() => void fork()} disabled={pending}>
-      <GitFork />
-      {pending ? 'Forking…' : 'Fork'}
-    </Button>
+    <>
+      <Button asChild>
+        <Link href={routes.prompt(forkId)}>
+          <GitFork />
+          Your fork
+        </Link>
+      </Button>
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogTrigger asChild>
+          <Button variant="ghost">
+            <Undo2 />
+            Remove fork
+          </Button>
+        </DialogTrigger>
+        <DialogContent
+          title="Remove your fork?"
+          description="Your copy of this prompt, with any changes and versions you saved in it, is deleted from your shelf. The original is not affected, and you can fork it again."
+        >
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button variant="ghost">Keep it</Button>
+            </DialogClose>
+            <Button variant="danger" onClick={() => void removeFork()} disabled={pending}>
+              {pending ? 'Removing…' : 'Remove fork'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
