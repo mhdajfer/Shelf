@@ -9,9 +9,9 @@ Two faces, one codebase:
 - **Your shelf** — for signed-in users. Private by default, with collections, version history,
   variables, test runs, and version comparison.
 
-> Build status: phase 5 of 9 complete. The API, the public library, prompt pages, profiles, and
-> sign-in are in place; the signed-in shelf and model-backed test runs land in the phases listed in
-> [Roadmap](#roadmap).
+> Build status: phase 6 of 9 complete. The API, the public library, and the signed-in shelf with
+> its editor, collections, and version history are in place; model-backed test runs land next, per
+> the [Roadmap](#roadmap).
 
 ## Why
 
@@ -238,6 +238,9 @@ through `readableBy`; writes first establish ownership with `promptRepo.findOwne
 | `POST /prompts/:id/report`                       | Report; three different reporters hide the prompt          |
 | `GET /shelf/prompts`                             | The signed-in user's own prompts                           |
 | `GET /credits`                                   | Today's remaining allowance                                |
+| `GET /shelf/summary`                             | Sidebar counts and collections                             |
+| `POST` / `PATCH` / `DELETE /collections[/:id]`   | Manage collections; `PUT /collections/order` reorders      |
+| `PUT` / `DELETE /collections/:id/prompts/:promptId` | File a prompt, only when you own both                   |
 
 Status codes carry meaning: **404** for a prompt you cannot read (whether or not it exists),
 **403** for a public prompt you can read but do not own, **402** when the day's credits are spent,
@@ -277,6 +280,20 @@ link that works without JavaScript.
 | `/u/[handle]`         | A public profile                                                   |
 | `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password`, `/verify-email` | Account flows |
 | `/sitemap.xml`, `/robots.txt` | Public, active prompts only                                |
+
+| `/shelf`              | Your prompts: all, pinned, by collection, and searchable           |
+| `/new`, `/p/[id]/edit` | The editor. Works for guests too, on the daily allowance          |
+| `/p/[id]/history`     | Every version, with a line diff and restore                        |
+
+**The editor** is CodeMirror 6 with one extension that calls `parseTemplate` from `@shelf/shared`:
+placeholders are marked, malformed ones get a wavy underline and a message under the editor, and
+typing `{{` offers the variables the prompt already uses. The variables list and the live preview
+beside it read the same parse, so the editor, the preview, and the API cannot disagree about what a
+variable is. `Ctrl/Cmd+S` saves; a save that changes the body asks what changed and stores the
+answer with the new version.
+
+**Collections** reorder by drag and drop (dnd-kit), including from the keyboard: focus a handle,
+`Space` to lift, arrows to move. Shelf state lives in the URL, so a filtered view can be bookmarked.
 
 The share image and the sitemap fetch **anonymously**, never with the visitor's cookies: both are
 cached by third parties, so they may only ever contain what a signed-out visitor can read.
@@ -401,8 +418,8 @@ secrets are still in place.
 | 3     | Auth: email/password, Google, sessions, CSRF, verification, reset      | done   |
 | 4     | Prompts CRUD, versions, diff, restore, fork, votes, reports, credits   | done   |
 | 5     | Search, trending, public library pages with SSR and OG images          | done   |
-| 6     | Signed-in shelf UI: sidebar, collections, editor, variables, history   | next   |
-| 7     | LLM provider layer, test run streaming, compare, tighten, suggestions  |        |
+| 6     | Signed-in shelf UI: sidebar, collections, editor, variables, history   | done   |
+| 7     | LLM provider layer, test run streaming, compare, tighten, suggestions  | next   |
 | 8     | Command palette, shortcuts, import/export, dark mode toggle, admin     |        |
 | 9     | Full test pass, accessibility audit, security checklist, deploy config |        |
 

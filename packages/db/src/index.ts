@@ -37,7 +37,11 @@ export {
   type SpendResult,
 } from './repositories/activityRepo.js';
 
-export { collectionRepo, type CollectionRecord } from './repositories/collectionRepo.js';
+export {
+  collectionRepo,
+  COLLECTION_NAME_CONSTRAINT,
+  type CollectionRecord,
+} from './repositories/collectionRepo.js';
 
 export {
   userRepo,

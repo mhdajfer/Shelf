@@ -221,3 +221,27 @@ export interface CreditsDto {
   create: CreditAllowance | null;
   model: CreditAllowance;
 }
+
+export const collectionNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'Give the collection a name.')
+  .max(
+    LIMITS.collectionNameMax,
+    `Collection names are limited to ${String(LIMITS.collectionNameMax)} characters.`,
+  );
+
+export const collectionSchema = z.object({ name: collectionNameSchema });
+export const collectionOrderSchema = z.object({ ids: z.array(z.uuid()).max(200) });
+
+export interface CollectionDto {
+  id: string;
+  name: string;
+  position: number;
+  itemCount: number;
+}
+
+export interface ShelfSummaryDto {
+  counts: { total: number; pinned: number; public: number };
+  collections: CollectionDto[];
+}

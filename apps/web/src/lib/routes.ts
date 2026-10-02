@@ -2,6 +2,10 @@
 export const routes = {
   home: '/',
   prompt: (id: string) => `/p/${id}`,
+  editPrompt: (id: string) => `/p/${id}/edit`,
+  promptHistory: (id: string) => `/p/${id}/history`,
+  newPrompt: '/new',
+  shelf: '/shelf',
   profile: (handle: string) => `/u/${handle}`,
   signIn: (next?: string) =>
     next === undefined ? '/sign-in' : `/sign-in?next=${encodeURIComponent(next)}`,
@@ -10,7 +14,7 @@ export const routes = {
 } as const;
 
 /** Where a visitor lands after signing in, unless they were on their way somewhere. */
-export const AFTER_SIGN_IN = '/';
+export const AFTER_SIGN_IN = '/shelf';
 
 /**
  * Only same-site paths are honoured as a post-sign-in destination; anything

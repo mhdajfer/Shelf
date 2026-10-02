@@ -1,6 +1,7 @@
 'use client';
 
 import * as Menu from '@radix-ui/react-dropdown-menu';
+import { Check } from 'lucide-react';
 import type { ComponentProps } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -42,4 +43,27 @@ export function DropdownMenuLabel({ className, ...props }: ComponentProps<typeof
 
 export function DropdownMenuSeparator() {
   return <Menu.Separator className="my-1 h-px bg-border" />;
+}
+
+export function DropdownMenuCheckboxItem({
+  className,
+  children,
+  ...props
+}: ComponentProps<typeof Menu.CheckboxItem>) {
+  return (
+    <Menu.CheckboxItem
+      className={cn(
+        'relative flex cursor-default items-center rounded-sm py-1.5 pr-2 pl-7 outline-none select-none data-highlighted:bg-surface-sunken',
+        className,
+      )}
+      {...props}
+    >
+      <span className="absolute left-2 inline-flex size-4 items-center justify-center">
+        <Menu.ItemIndicator>
+          <Check className="size-4" />
+        </Menu.ItemIndicator>
+      </span>
+      {children}
+    </Menu.CheckboxItem>
+  );
 }

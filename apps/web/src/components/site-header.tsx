@@ -1,6 +1,6 @@
 'use client';
 
-import { LogOut, User } from 'lucide-react';
+import { LogOut, Plus, User } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -102,15 +102,22 @@ export function SiteHeader() {
             <NavLink href={routes.home} exact>
               Library
             </NavLink>
+            {user !== null && <NavLink href={routes.shelf}>Your shelf</NavLink>}
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
+            <Button asChild size="sm">
+              <Link href={routes.newPrompt}>
+                <Plus />
+                <span className="max-sm:sr-only">New prompt</span>
+              </Link>
+            </Button>
             {user === null ? (
               <>
                 <Button asChild variant="ghost" size="sm">
                   <Link href={routes.signIn()}>Sign in</Link>
                 </Button>
-                <Button asChild variant="primary" size="sm">
+                <Button asChild variant="primary" size="sm" className="max-sm:hidden">
                   <Link href={routes.signUp}>Create account</Link>
                 </Button>
               </>

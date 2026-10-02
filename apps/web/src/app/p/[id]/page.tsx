@@ -1,3 +1,4 @@
+import { History } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -6,9 +7,11 @@ import { cache } from 'react';
 import type { PromptDetailDto, PromptDto } from '@shelf/shared';
 
 import { CopyButton } from '@/components/copy-button';
+import { OwnerActions } from '@/components/owner-actions';
 import { ForkButton, ReportButton } from '@/components/prompt-actions';
 import { PromptBody } from '@/components/prompt-body';
 import { AuthorLink, categoryLabel, PromptGrid } from '@/components/prompt-card';
+import { Button } from '@/components/ui/button';
 import { UsePanel } from '@/components/use-panel';
 import { VoteButton } from '@/components/vote-button';
 import { serverApi, serverApiOrNull } from '@/lib/api-server';
@@ -122,7 +125,14 @@ export default async function PromptPage({ params }: { params: Params }) {
           disabled={!votable}
         />
         <ForkButton promptId={prompt.id} />
+        <Button asChild variant="ghost">
+          <Link href={routes.promptHistory(prompt.id)}>
+            <History />
+            History
+          </Link>
+        </Button>
         {isPublic && !prompt.viewer.isOwner && <ReportButton promptId={prompt.id} />}
+        {prompt.viewer.isOwner && <OwnerActions prompt={prompt} />}
       </div>
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">

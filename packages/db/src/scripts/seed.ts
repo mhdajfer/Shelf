@@ -197,7 +197,7 @@ async function main(): Promise<void> {
 
       const collectionId = await collectionRepo.createCollection(db, shelfOwner.id, 'Drafts');
       for (const id of privateIds.slice(0, 3)) {
-        await collectionRepo.addItem(db, collectionId, id);
+        await collectionRepo.addItem(db, shelfOwner.id, collectionId, id);
       }
 
       // A second version, so version history and diff are not empty on day one.

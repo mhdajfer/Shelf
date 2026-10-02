@@ -369,6 +369,22 @@ async function listForks(db: Database, promptId: string, limit = 20): Promise<Pr
   return rows.map(toSummary);
 }
 
+/** The numbers beside the sidebar's fixed entries. */
+async function shelfCounts(
+  db: Database,
+  userId: string,
+): Promise<{ total: number; pinned: number; public: number }> {
+  const [row] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      pinned: sql<number>`count(*) FILTER (WHERE ${prompts.pinnedAt} IS NOT NULL)::int`,
+      public: sql<number>`count(*) FILTER (WHERE ${prompts.visibility} = 'public')::int`,
+    })
+    .from(prompts)
+    .where(and(eq(prompts.ownerId, userId), sql`${prompts.status} <> 'deleted'`));
+  return row ?? { total: 0, pinned: 0, public: 0 };
+}
+
 async function countOwned(db: Database, userId: string): Promise<number> {
   const rows = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -724,6 +740,7 @@ export const promptRepo = {
   findVersion,
   listForks,
   countOwned,
+  shelfCounts,
   listCategoriesWithCounts,
   create,
   addVersion,

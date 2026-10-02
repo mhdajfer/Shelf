@@ -3,3 +3,18 @@
 @import '@shelf/config/tailwind/theme.css';
 
 @source '../../src';
+
+@layer components {
+  /* A malformed placeholder in the editor. Colour is not the only signal: the
+     underline is wavy and the message is in the list under the editor. */
+  .shelf-diagnostic {
+    text-decoration: underline wavy var(--color-warning);
+    text-decoration-skip-ink: none;
+    text-underline-offset: 3px;
+  }
+
+  /* The editor's content element is focusable; its container draws the ring. */
+  .cm-editor .cm-content:focus-visible {
+    outline: none;
+  }
+}

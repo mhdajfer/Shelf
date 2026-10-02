@@ -13,6 +13,7 @@ import type { EmailTransport } from './email/transport.js';
 import { AppError, errorHandler, notFoundHandler } from './http/errors.js';
 import { httpLogger } from './observability/logger.js';
 import { createAuthRouter } from './routes/auth.js';
+import { createCollectionRouter } from './routes/collections.js';
 import { createHealthRouter, type HealthChecks } from './routes/health.js';
 import { createLibraryRouter } from './routes/library.js';
 import { createPromptRouter } from './routes/prompts.js';
@@ -77,6 +78,8 @@ export function createApp(deps: AppDeps): Express {
   app.use(csrfProtection);
 
   app.use(`${API_PREFIX}/auth`, createAuthRouter(deps));
+  // Before the prompt router: /collections/order must not be read as an id.
+  app.use(API_PREFIX, createCollectionRouter(deps));
   app.use(API_PREFIX, createPromptRouter(deps));
   app.use(API_PREFIX, createLibraryRouter(deps));
 

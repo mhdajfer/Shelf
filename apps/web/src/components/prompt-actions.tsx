@@ -41,7 +41,8 @@ export function ForkButton({ promptId }: { promptId: string }) {
       toast.success('Forked to your shelf', {
         description: 'Your copy is private until you publish it.',
       });
-      router.push(routes.prompt(prompt.id));
+      // Straight into the editor: the point of forking is to change it.
+      router.push(routes.editPrompt(prompt.id));
     } catch (error) {
       toast.error(errorMessage(error));
       setPending(false);

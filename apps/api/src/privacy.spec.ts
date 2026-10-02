@@ -72,7 +72,7 @@ beforeEach(async () => {
   });
 
   aliceCollectionId = await collectionRepo.createCollection(db, alice.id, 'Internal');
-  await collectionRepo.addItem(db, aliceCollectionId, secretId);
+  await collectionRepo.addItem(db, alice.id, aliceCollectionId, secretId);
 });
 
 /**

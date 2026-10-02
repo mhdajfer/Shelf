@@ -16,7 +16,13 @@ const MULTILINE =
  * by the same renderer the API uses for test runs, so what is copied here is
  * exactly what a run would send.
  */
-export function UsePanel({ body }: { body: string }) {
+export function UsePanel({
+  body,
+  heading = 'Use this prompt',
+}: {
+  body: string;
+  heading?: string;
+}) {
   const id = useId();
   const parsed = useMemo(() => parseTemplate(body), [body]);
   const [values, setValues] = useState<Record<string, string>>(() => initialValues(parsed));
@@ -51,7 +57,7 @@ export function UsePanel({ body }: { body: string }) {
       className="flex flex-col gap-4 rounded-lg border border-border bg-surface-raised p-4"
     >
       <h2 id={`${id}-heading`} className="font-medium">
-        Use this prompt
+        {heading}
       </h2>
 
       {parsed.variables.length === 0 ? (
@@ -60,8 +66,10 @@ export function UsePanel({ body }: { body: string }) {
         <div className="flex flex-col gap-3">
           {parsed.variables.map((variable) => {
             const fieldId = `${id}-${variable.name}`;
-            const multiline =
-              MULTILINE.test(variable.name) || (values[variable.name]?.length ?? 0) > 60;
+            // A variable added after the panel mounted has no entry yet, so its
+            // default stands in until the reader types.
+            const current = values[variable.name] ?? variable.defaultValue ?? '';
+            const multiline = MULTILINE.test(variable.name) || current.length > 60;
             return (
               <div key={variable.name} className="flex flex-col gap-1">
                 <Label htmlFor={fieldId} className="font-mono text-[0.8125rem] font-normal">
@@ -70,14 +78,14 @@ export function UsePanel({ body }: { body: string }) {
                 {multiline ? (
                   <Textarea
                     id={fieldId}
-                    value={values[variable.name] ?? ''}
+                    value={current}
                     onChange={(event) => update(variable.name, event.target.value)}
                     rows={3}
                   />
                 ) : (
                   <Input
                     id={fieldId}
-                    value={values[variable.name] ?? ''}
+                    value={current}
                     onChange={(event) => update(variable.name, event.target.value)}
                   />
                 )}
