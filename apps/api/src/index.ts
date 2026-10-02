@@ -4,6 +4,7 @@ import { env } from './config/env.js';
 import { createEmailTransport } from './email/transport.js';
 import { connectDatabase } from './infra/database.js';
 import { connectRedis } from './infra/redis.js';
+import { startScheduler } from './jobs/scheduler.js';
 import { logger } from './observability/logger.js';
 import { createBotCheck } from './security/botCheck.js';
 import { createRateLimits } from './security/rateLimit.js';
@@ -22,6 +23,8 @@ const server = createApp({
   logger.info({ port: env.API_PORT, env: env.NODE_ENV }, 'api listening');
 });
 
+const stopScheduler = startScheduler(database.db);
+
 let shuttingDown = false;
 
 /** Close datastores only after the last request has drained, not before. */
@@ -34,6 +37,7 @@ function shutdown(signal: string): void {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info({ signal }, 'shutting down');
+  stopScheduler();
 
   // A held-open SSE stream must not stop the platform's stop signal landing.
   const forceExit = setTimeout(() => {

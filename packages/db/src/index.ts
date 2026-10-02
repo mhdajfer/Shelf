@@ -44,6 +44,7 @@ export {
   USER_EMAIL_CONSTRAINT,
   USER_HANDLE_CONSTRAINT,
   type CreateUserInput,
+  type PublicProfile,
   type UserRecord,
 } from './repositories/userRepo.js';
 

@@ -18,7 +18,8 @@ const BUCKETS = {
   write: { points: 60, duration: 60 },
   vote: { points: 120, duration: 60 },
   report: { points: 10, duration: 60 * 60 },
-  search: { points: 90, duration: 60 },
+  // Generous: server-rendered searches all arrive from the web host's address.
+  search: { points: 300, duration: 60 },
   model: { points: 20, duration: 60 },
 } as const;
 

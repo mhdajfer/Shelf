@@ -88,3 +88,23 @@ export interface SessionUser {
   /** False for Google-only accounts, which have no password to change. */
   hasPassword: boolean;
 }
+
+/** `GET /auth/me`: everything the web app needs to draw its chrome. */
+export interface MeDto {
+  user: SessionUser | null;
+  guest: { handle: string } | null;
+  csrfToken: string;
+  features: {
+    /** False when Google credentials are not configured; the button is hidden. */
+    google: boolean;
+    /** True when a real Turnstile secret is configured and tokens are required. */
+    botCheck: boolean;
+  };
+}
+
+export interface PublicProfileDto {
+  handle: string;
+  name: string | null;
+  joinedAt: string;
+  publicPromptCount: number;
+}

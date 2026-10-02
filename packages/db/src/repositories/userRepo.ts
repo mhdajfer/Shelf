@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import type { UserRole } from '@shelf/shared';
 
@@ -146,6 +146,32 @@ async function linkOAuthAccount(
     .onConflictDoNothing();
 }
 
+export interface PublicProfile {
+  handle: string;
+  name: string | null;
+  joinedAt: Date;
+  /** Public, active prompts only. A private shelf never shows in this number. */
+  publicPromptCount: number;
+}
+
+/** What anyone may know about an account. Never the email address. */
+async function findPublicProfile(db: Executor, handle: string): Promise<PublicProfile | null> {
+  const [row] = await db
+    .select({
+      handle: users.handle,
+      name: users.name,
+      joinedAt: users.createdAt,
+      publicPromptCount: sql<number>`(
+        SELECT count(*)::int FROM prompts p
+        WHERE p.owner_id = "users"."id" AND p.visibility = 'public' AND p.status = 'active'
+      )`,
+    })
+    .from(users)
+    .where(eq(users.handle, handle.toLowerCase()))
+    .limit(1);
+  return row ?? null;
+}
+
 async function remove(db: Database, id: string): Promise<void> {
   await db.delete(users).where(eq(users.id, id));
 }
@@ -154,6 +180,7 @@ export const userRepo = {
   findById,
   findByEmail,
   findByHandle,
+  findPublicProfile,
   create,
   setPasswordHash,
   markEmailVerified,

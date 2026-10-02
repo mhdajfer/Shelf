@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 
 import {
+  TRENDING,
   type Category,
   type PromptStatus,
   type PublicSort,
@@ -657,6 +658,54 @@ async function listCategoriesWithCounts(
     .orderBy(asc(prompts.category));
 }
 
+/**
+ * The same formula as `trendingScore` in @shelf/shared, evaluated in SQL so the
+ * whole public shelf is rescored in one statement. The constants come from the
+ * shared module, so the two cannot drift apart.
+ */
+async function recomputeTrending(db: Database): Promise<number> {
+  const result = await db.execute(sql`
+    UPDATE prompts
+    SET trending_score = (
+      (upvote_count + ${TRENDING.forkWeight} * fork_count)::double precision
+      / power(
+          GREATEST(extract(epoch FROM (now() - created_at)) / 3600.0, 0) + ${TRENDING.timeOffsetHours},
+          ${TRENDING.gravity}::double precision
+        )
+    )::real
+    WHERE visibility = 'public' AND status = 'active'
+  `);
+  return result.rowCount ?? 0;
+}
+
+/** The most used tags on the public shelf, for the filter chips. */
+async function listTopTags(db: Database, limit = 16): Promise<{ name: string; count: number }[]> {
+  const result = await db.execute<{ name: string; count: number }>(sql`
+    SELECT t.name, count(*)::int AS count
+    FROM prompt_tags pt
+    JOIN tags t ON t.id = pt.tag_id
+    JOIN prompts p ON p.id = pt.prompt_id
+    WHERE p.visibility = 'public' AND p.status = 'active'
+    GROUP BY t.name
+    ORDER BY count DESC, t.name
+    LIMIT ${Math.min(Math.max(limit, 1), 50)}
+  `);
+  return result.rows;
+}
+
+/** Everything a crawler may be told about: public, active prompts only. */
+async function listSitemapEntries(
+  db: Database,
+  limit = 5000,
+): Promise<{ id: string; updatedAt: Date }[]> {
+  return db
+    .select({ id: prompts.id, updatedAt: prompts.updatedAt })
+    .from(prompts)
+    .where(PUBLIC_ONLY)
+    .orderBy(desc(prompts.updatedAt))
+    .limit(limit);
+}
+
 export const promptRepo = {
   findVisible,
   findOwned,
@@ -664,6 +713,9 @@ export const promptRepo = {
   countPublic,
   countSearchPublic,
   updateMeta,
+  recomputeTrending,
+  listTopTags,
+  listSitemapEntries,
   listPublic,
   searchPublic,
   listOwned,

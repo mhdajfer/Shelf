@@ -9,8 +9,8 @@ Two faces, one codebase:
 - **Your shelf** — for signed-in users. Private by default, with collections, version history,
   variables, test runs, and version comparison.
 
-> Build status: phase 4 of 9 complete. The data layer, authentication, and the prompt API are in
-> place; search, the UI, and model-backed test runs land in the phases listed in
+> Build status: phase 5 of 9 complete. The API, the public library, prompt pages, profiles, and
+> sign-in are in place; the signed-in shelf and model-backed test runs land in the phases listed in
 > [Roadmap](#roadmap).
 
 ## Why
@@ -250,6 +250,37 @@ whichever count is higher. Signed-in users are not metered on creation, only on 
 **`updated_at` means "the author changed this".** Migration `0002` narrows the trigger to authored
 columns, so an upvote, a pin, or a trending recompute no longer reshuffles the owner's shelf.
 
+## Search and ranking
+
+Search is Postgres full-text over the trigger-maintained `search_vector`, queried with
+`websearch_to_tsquery`, so quoted phrases and `-exclusions` work and stray punctuation cannot raise.
+Results rank by `ts_rank_cd`, which respects the A-D weighting (title, tags, description, body).
+
+Trending is `(upvotes + 2 x forks) / (age_hours + 2)^1.5`. The score is stored, because a decay
+formula in `ORDER BY` cannot use an index, and recomputed for the whole public shelf in one `UPDATE`
+every 15 minutes by an in-process cron job and once at boot. `library.spec.ts` asserts the SQL
+agrees with `trendingScore()` in `@shelf/shared`; both read the same constants. For hosts that sleep,
+`POST /api/v1/cron/trending` with `Authorization: Bearer $CRON_SECRET` does the same on demand.
+
+## The web app
+
+Public pages are server-rendered by fetching the API with the visitor's cookies forwarded, so the
+API resolves the same actor it would for a browser request and there is one place that decides what
+anyone may see. The library keeps its state in the URL: every filter, sort, and page is a plain
+link that works without JavaScript.
+
+| Route                 | What it is                                                         |
+| --------------------- | ------------------------------------------------------------------ |
+| `/`                   | The public shelf: search, category and tag filters, four sorts     |
+| `/p/[id]`             | A prompt: source, a fill-in-the-variables panel, vote, fork, report |
+| `/p/[id]/opengraph-image` | Share image, rendered with `next/og` from the shared palette   |
+| `/u/[handle]`         | A public profile                                                   |
+| `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password`, `/verify-email` | Account flows |
+| `/sitemap.xml`, `/robots.txt` | Public, active prompts only                                |
+
+The share image and the sitemap fetch **anonymously**, never with the visitor's cookies: both are
+cached by third parties, so they may only ever contain what a signed-out visitor can read.
+
 ## Authentication
 
 Sessions are opaque random tokens in an `HttpOnly`, `SameSite=Lax` cookie. The database stores only
@@ -369,8 +400,8 @@ secrets are still in place.
 | 2     | Drizzle schema, migrations, seed, repository layer, `privacy.spec.ts`  | done   |
 | 3     | Auth: email/password, Google, sessions, CSRF, verification, reset      | done   |
 | 4     | Prompts CRUD, versions, diff, restore, fork, votes, reports, credits   | done   |
-| 5     | Search, trending, public library pages with SSR and OG images          | next   |
-| 6     | Signed-in shelf UI: sidebar, collections, editor, variables, history   |        |
+| 5     | Search, trending, public library pages with SSR and OG images          | done   |
+| 6     | Signed-in shelf UI: sidebar, collections, editor, variables, history   | next   |
 | 7     | LLM provider layer, test run streaming, compare, tighten, suggestions  |        |
 | 8     | Command palette, shortcuts, import/export, dark mode toggle, admin     |        |
 | 9     | Full test pass, accessibility audit, security checklist, deploy config |        |

@@ -14,6 +14,7 @@ import { AppError, errorHandler, notFoundHandler } from './http/errors.js';
 import { httpLogger } from './observability/logger.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createHealthRouter, type HealthChecks } from './routes/health.js';
+import { createLibraryRouter } from './routes/library.js';
 import { createPromptRouter } from './routes/prompts.js';
 import type { BotCheck } from './security/botCheck.js';
 import type { RateLimits } from './security/rateLimit.js';
@@ -77,6 +78,7 @@ export function createApp(deps: AppDeps): Express {
 
   app.use(`${API_PREFIX}/auth`, createAuthRouter(deps));
   app.use(API_PREFIX, createPromptRouter(deps));
+  app.use(API_PREFIX, createLibraryRouter(deps));
 
   app.use(notFoundHandler);
   app.use(errorHandler);
