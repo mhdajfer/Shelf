@@ -23,8 +23,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
  * exists, by any route.
  *
  * This file covers the repository surfaces. The same rule is asserted over HTTP
- * in privacy.http.spec.ts; the `it.todo` entries at the bottom name the
- * surfaces whose endpoints have not landed yet.
+ * in privacy.http.spec.ts, and in a browser, including the share image and the
+ * sitemap, in e2e/privacy.spec.ts.
  */
 let harness: TestDatabase;
 let db: Database;
@@ -263,11 +263,4 @@ describe('guest prompts', () => {
     await makeGuestPrompt(db, GUEST_A);
     expect(await promptRepo.listOwned(db, guestActor(GUEST_A), {})).toEqual([]);
   });
-});
-
-describe('surfaces still to be covered', () => {
-  // Each lands with the phase that introduces the endpoint. Listed here so the
-  // gap is visible in the test output rather than only in the brief.
-  // Covered end to end, in the browser: e2e/privacy.spec.ts.
-  it.todo('the OG image route 404s for a private prompt');
 });

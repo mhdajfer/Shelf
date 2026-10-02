@@ -18,6 +18,7 @@ import {
   type SignupInput,
 } from '@shelf/shared';
 
+import { Turnstile, turnstileEnabled } from '@/components/turnstile';
 import { Button } from '@/components/ui/button';
 import { describedBy, Field, Input } from '@/components/ui/field';
 import { api, API_BASE } from '@/lib/api-client';
@@ -171,6 +172,8 @@ export function SignInForm() {
 export function SignUpForm() {
   const done = useAfterAuth();
   const [formError, setFormError] = useState<string | null>(null);
+  // Only present when a real Turnstile key is configured; the API then requires it.
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const { register, handleSubmit, setError, formState } = useForm<SignupInput>({
     resolver: zodResolver(signupSchema),
   });
@@ -179,7 +182,10 @@ export function SignUpForm() {
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
     try {
-      await api('/auth/signup', { method: 'POST', body: values });
+      await api('/auth/signup', {
+        method: 'POST',
+        body: { ...values, ...(turnstileToken === null ? {} : { turnstileToken }) },
+      });
       await done();
     } catch (error) {
       setFormError(applyApiError(error, setError, ['email', 'password', 'name']));
@@ -227,7 +233,12 @@ export function SignUpForm() {
             {...describedBy('password', errors.password?.message, true)}
           />
         </Field>
-        <Button type="submit" variant="primary" disabled={isSubmitting}>
+        <Turnstile onToken={setTurnstileToken} />
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={isSubmitting || (turnstileEnabled && turnstileToken === null)}
+        >
           {isSubmitting ? 'Creating account…' : 'Create account'}
         </Button>
       </form>

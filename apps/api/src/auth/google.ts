@@ -29,7 +29,14 @@ interface GoogleClaims {
 
 /** Null when the Google credentials are not configured. */
 export function createGoogleProvider(): OAuthProvider | null {
-  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_REDIRECT_URI) return null;
+  if (
+    env.OFFLINE_MODE ||
+    !env.GOOGLE_CLIENT_ID ||
+    !env.GOOGLE_CLIENT_SECRET ||
+    !env.GOOGLE_REDIRECT_URI
+  ) {
+    return null;
+  }
 
   const google = new Google(
     env.GOOGLE_CLIENT_ID,

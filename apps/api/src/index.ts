@@ -8,7 +8,7 @@ import { startScheduler } from './jobs/scheduler.js';
 import { createLlmProvider } from './llm/provider.js';
 import { logger } from './observability/logger.js';
 import { createBotCheck } from './security/botCheck.js';
-import { createRateLimits } from './security/rateLimit.js';
+import { createRateLimits, noRateLimits } from './security/rateLimit.js';
 
 const database = connectDatabase();
 const redis = connectRedis();
@@ -19,7 +19,7 @@ const server = createApp({
   health: { database: database.ping, redis: redis.ping },
   db: database.db,
   email: createEmailTransport(),
-  limits: createRateLimits(redis.client),
+  limits: env.RATE_LIMIT_DISABLED ? noRateLimits : createRateLimits(redis.client),
   botCheck: createBotCheck(),
   google: createGoogleProvider(),
   llm,

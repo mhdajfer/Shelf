@@ -15,7 +15,7 @@ const VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 export const noBotCheck: BotCheck = { enabled: false, verify: () => Promise.resolve() };
 
 export function createBotCheck(): BotCheck {
-  if (isTest || env.TURNSTILE_SECRET_KEY === TEST_SECRET) return noBotCheck;
+  if (isTest || env.OFFLINE_MODE || env.TURNSTILE_SECRET_KEY === TEST_SECRET) return noBotCheck;
 
   return {
     enabled: true,

@@ -10,7 +10,15 @@ import type { MeDto } from '@shelf/shared';
 import { ApiError } from '@/lib/api-error';
 import { SessionProvider } from '@/lib/session';
 
-export function Providers({ me, children }: { me: MeDto; children: ReactNode }) {
+export function Providers({
+  me,
+  nonce,
+  children,
+}: {
+  me: MeDto;
+  nonce: string | undefined;
+  children: ReactNode;
+}) {
   // One client per browser tab, created lazily so it is never shared between
   // two requests during server rendering.
   const [queryClient] = useState(
@@ -37,6 +45,7 @@ export function Providers({ me, children }: { me: MeDto; children: ReactNode }) 
         defaultTheme="system"
         enableSystem
         disableTransitionOnChange
+        {...(nonce === undefined ? {} : { nonce })}
       >
         <SessionProvider me={me}>{children}</SessionProvider>
       </ThemeProvider>

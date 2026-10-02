@@ -159,5 +159,7 @@ export function createGeminiProvider(apiKey: string): LlmProvider {
 }
 
 export function createLlmProvider(): LlmProvider {
-  return env.GEMINI_API_KEY ? createGeminiProvider(env.GEMINI_API_KEY) : createFakeProvider();
+  return env.GEMINI_API_KEY && !env.OFFLINE_MODE
+    ? createGeminiProvider(env.GEMINI_API_KEY)
+    : createFakeProvider();
 }

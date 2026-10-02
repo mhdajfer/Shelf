@@ -43,6 +43,7 @@ import { env } from '../config/env.js';
 import { passwordResetEmail, verificationEmail } from '../email/messages.js';
 import type { EmailTransport } from '../email/transport.js';
 import { AppError, unauthorized } from '../http/errors.js';
+import type { LlmProvider } from '../llm/provider.js';
 import { logger } from '../observability/logger.js';
 import type { BotCheck } from '../security/botCheck.js';
 import type { RateLimits } from '../security/rateLimit.js';
@@ -53,6 +54,7 @@ export interface AuthDeps {
   limits: RateLimits;
   botCheck: BotCheck;
   google: OAuthProvider | null;
+  llm: LlmProvider;
 }
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -136,7 +138,11 @@ export function createAuthRouter(deps: AuthDeps): Router {
       user: req.user ?? null,
       guest: req.guestId === undefined ? null : { handle: guestHandle(req.guestId) },
       csrfToken: ensureCsrfToken(req, res),
-      features: { google: google !== null, botCheck: botCheck.enabled },
+      features: {
+        google: google !== null,
+        botCheck: botCheck.enabled,
+        simulatedModel: deps.llm.name === 'fake',
+      },
     });
   });
 

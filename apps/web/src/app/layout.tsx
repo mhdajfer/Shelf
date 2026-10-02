@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { GeistSans } from 'geist/font/sans';
+import { headers } from 'next/headers';
 
 import { brand } from '@shelf/config';
 
@@ -26,6 +27,9 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const me = await getMe();
+  // Set by src/proxy.ts. The theme script is the one inline script the app adds
+  // itself, so it needs this request's nonce to pass the policy.
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
 
   return (
     <html lang="en" className={GeistSans.variable} suppressHydrationWarning>
@@ -36,7 +40,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         >
           Skip to content
         </a>
-        <Providers me={me}>
+        <Providers me={me} nonce={nonce}>
           <SiteHeader />
           <CommandCenter />
           <div id="content" className="flex flex-1 flex-col">

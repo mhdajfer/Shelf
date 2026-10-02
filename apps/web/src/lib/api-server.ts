@@ -41,7 +41,7 @@ const SIGNED_OUT: MeDto = {
   user: null,
   guest: null,
   csrfToken: '',
-  features: { google: false, botCheck: false },
+  features: { google: false, botCheck: false, simulatedModel: false },
 };
 
 /**

@@ -27,6 +27,12 @@ const csv = (fallback: string) =>
 const port = z.coerce.number().int().min(1).max(65_535);
 const positiveInt = z.coerce.number().int().positive();
 
+/** "true"/"1" and "false"/"0"/unset. Anything else is a typo worth failing on. */
+const flag = z
+  .enum(['true', 'false', '1', '0', ''])
+  .default('false')
+  .transform((value) => value === 'true' || value === '1');
+
 const DEV_PLACEHOLDER = /^dev-only-/;
 
 const schema = z.object({
@@ -66,6 +72,15 @@ const schema = z.object({
   TURNSTILE_SITE_KEY: z.string().default('1x00000000000000000000AA'),
   TURNSTILE_SECRET_KEY: z.string().default('1x0000000000000000000000000000000AA'),
 
+  /**
+   * Never contact an external service: the fake model, the console email
+   * transport, no Google sign-in, no Turnstile, whatever keys are present.
+   * For end-to-end tests and for working offline. Refused in production.
+   */
+  OFFLINE_MODE: flag,
+  /** Turns the rate limiters off, for end-to-end tests. Refused in production. */
+  RATE_LIMIT_DISABLED: flag,
+
   ADMIN_EMAILS: csv(''),
   CRON_SECRET: z.string().min(8).default('dev-only-cron-secret-change-me'),
 });
@@ -89,6 +104,10 @@ export function parseEnv(source: NodeJS.ProcessEnv): Env {
     const unchanged = PRODUCTION_SECRETS.filter((key) => DEV_PLACEHOLDER.test(env[key]));
     if (unchanged.length > 0) {
       throw new Error(`Refusing to start: ${unchanged.join(', ')} still hold development values.`);
+    }
+    const testOnly = (['OFFLINE_MODE', 'RATE_LIMIT_DISABLED'] as const).filter((key) => env[key]);
+    if (testOnly.length > 0) {
+      throw new Error(`Refusing to start: ${testOnly.join(', ')} must not be set in production.`);
     }
   }
 

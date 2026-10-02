@@ -99,6 +99,8 @@ export interface MeDto {
     google: boolean;
     /** True when a real Turnstile secret is configured and tokens are required. */
     botCheck: boolean;
+    /** True when no model key is configured and test runs come from the built-in fake. */
+    simulatedModel: boolean;
   };
 }
 

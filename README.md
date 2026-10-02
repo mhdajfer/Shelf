@@ -9,9 +9,8 @@ Two faces, one codebase:
 - **Your shelf** — for signed-in users. Private by default, with collections, version history,
   variables, test runs, and version comparison.
 
-> Build status: phase 8 of 9 complete. Everything in the product is built; what remains is the
-> end-to-end test pass, the accessibility and security review, and deploy configuration, per the
-> [Roadmap](#roadmap).
+> Build status: all nine phases of the [Roadmap](#roadmap) are complete. It has not been deployed;
+> see [Deploying](#deploying) and [Known limitations](#known-limitations).
 
 ## Why
 
@@ -389,7 +388,8 @@ with no JavaScript and no flash of the wrong theme; the manual toggle only has t
 
 ## Running it
 
-Prerequisites: Node >= 20.11, pnpm, Docker Desktop running.
+Prerequisites: Node 22 (see `.nvmrc`; Node 24.15.0 on Windows is unreliable, see
+[Known limitations](#known-limitations)), pnpm, Docker Desktop running.
 
 ```bash
 pnpm install
@@ -445,28 +445,90 @@ printed to the API log.
 ```bash
 pnpm typecheck
 pnpm lint
-pnpm test:unit          # template parser, scoring, palette contrast, env, app wiring
-pnpm test:integration   # real Postgres: schema invariants and privacy.spec.ts
-pnpm test:e2e           # Playwright                               (phase 9)
+pnpm test:unit          # template parser, scoring, palette contrast, env, OpenAPI coverage
+pnpm test:integration   # real Postgres: schema invariants, the API over HTTP, privacy
+pnpm test:e2e           # Playwright: the production build in a real browser
 ```
 
 Integration tests need the Docker Postgres running. They create and migrate a sibling database per
 package (`shelf_test_db`, `shelf_test_api`) so a run never touches your development data, and so
 turbo can run both suites in parallel; within a package `fileParallelism: false` keeps files from
-truncating each other.
+truncating each other. On Windows, use Node 22 for these and for the end-to-end suite (see
+[Known limitations](#known-limitations)).
 
-`privacy.spec.ts` is the suite to watch. It asserts, for every surface that can return a prompt and
-for every actor who is not the owner, that a private prompt cannot be reached: direct fetch, all four
-public sort orders, search by title, body and tag, tag filtering, version history, a single version,
-the collection it belongs to, the owned-prompt list, shelf search, and the fork list. The HTTP cases
-are `it.todo` entries that land with the endpoints, so the remaining gap shows up in test output
-rather than only in the brief.
+**The privacy rule is asserted at three levels**, because each can fail independently:
+
+- `apps/api/src/privacy.spec.ts`, at the repository: for every function that can return a prompt and
+  every actor who is not the owner.
+- `apps/api/src/privacy.http.spec.ts`, over HTTP: the actor now comes from cookies, and the response
+  for a private prompt is compared byte for byte with the response for one that never existed.
+- `e2e/privacy.spec.ts`, in a browser against the production build: the page, its editor, its
+  history, the share image, the Markdown export, search, the command palette, and the sitemap.
+
+**The end-to-end suite is self-contained.** `pnpm test:e2e` starts its own API on port 4100 and a
+production build of the web app on port 3100, against its own database (`shelf_e2e`, recreated and
+seeded on every run). The API runs with `OFFLINE_MODE=true`, so no model, email, or OAuth provider
+is ever contacted, whatever keys are in `.env`. It covers the library, sign-up, the whole life of a
+prompt, guests, test runs, version comparison, the editor tools, privacy, keyboard use, and an axe
+accessibility scan of every kind of page in both colour schemes.
+
+Playwright's own Chromium is used by default (`pnpm exec playwright install chromium`). To use a
+browser already on the machine instead:
+
+```bash
+PLAYWRIGHT_CHANNEL=msedge pnpm test:e2e     # or chrome
+```
+
+### API reference
+
+The running API serves its own reference: Swagger UI at `/api/v1/docs` and the OpenAPI 3.1 document
+at `/api/v1/openapi.json`. Request bodies and query strings are generated from the same Zod schemas
+the routes validate with, and `openapi.test.ts` fails if a route exists without an entry or an entry
+exists without a route.
 
 ### Environment
 
 Every variable is documented with an example in [`.env.example`](.env.example). The API validates
 all of them through a Zod schema at boot and refuses to start in production while the development
 secrets are still in place.
+
+## Deploying
+
+Nothing has been deployed from this repository yet. The API image is verified locally: it builds,
+applies migrations, starts with `NODE_ENV=production`, and serves requests as an unprivileged user.
+`render.yaml` and `apps/web/vercel.json` are written to those platforms' documented formats and have
+not been run against them.
+
+| Piece    | Where         | Configuration                                             |
+| -------- | ------------- | --------------------------------------------------------- |
+| Web      | Vercel        | `apps/web/vercel.json`; set the project root to `apps/web` |
+| API      | Render        | `render.yaml`, which builds `apps/api/Dockerfile`          |
+| Postgres | Neon          | `DATABASE_URL`, with TLS; detected from the host           |
+| Redis    | Upstash       | `REDIS_URL`                                                |
+
+1. **Use sibling subdomains**, for example `shelf.example` and `api.shelf.example`, and set
+   `COOKIE_DOMAIN=.shelf.example`. The session cookie is then sent to both, and stays `SameSite=Lax`
+   because sibling subdomains are same-site. Two unrelated domains will not work.
+2. **API environment.** `render.yaml` lists every variable. `SESSION_SECRET`, `GUEST_SECRET`, and
+   `CRON_SECRET` are generated; the API refuses to start in production if they still hold their
+   development values. `CORS_ALLOWED_ORIGINS` must be the web origin exactly.
+3. **Web environment**, on Vercel: `PUBLIC_API_URL`, `PUBLIC_WEB_URL`, and `TURNSTILE_SITE_KEY`.
+   They are read at build time, so changing one needs a redeploy.
+4. **Migrations** run when the API container starts (`node dist/migrate.js`), before the server
+   listens. They are forward-only, so two instances starting together is safe.
+5. **Trending.** The API recomputes scores in-process every 15 minutes. On a host that sleeps, the
+   cron service in `render.yaml` calls `POST /api/v1/cron/trending` on the same schedule, which
+   also wakes the API.
+6. **Google sign-in.** Register `https://api.<domain>/api/v1/auth/oauth/google/callback` as the
+   redirect URI.
+
+The image can be built and run locally:
+
+```bash
+docker build -f apps/api/Dockerfile -t shelf-api .
+```
+
+See [SECURITY.md](SECURITY.md) for what is defended, where, and how each defence is tested.
 
 ## Roadmap
 
@@ -480,19 +542,24 @@ secrets are still in place.
 | 6     | Signed-in shelf UI: sidebar, collections, editor, variables, history   | done   |
 | 7     | LLM provider layer, test run streaming, compare, tighten, suggestions  | done   |
 | 8     | Command palette, shortcuts, import/export, dark mode toggle, admin     | done   |
-| 9     | Full test pass, accessibility audit, security checklist, deploy config | next   |
+| 9     | Full test pass, accessibility audit, security checklist, deploy config | done   |
 
 ## Known limitations
 
-- **The API integration tests crash intermittently on Node 24.15.0 on Windows.** This is a runtime
-  fault, not a test failure: the Node process exits with `0xC0000409` and no output, and vitest
-  reports "Worker exited unexpectedly". It needs Express and an HTTP client in the same process,
-  which is what supertest does. A 15-line script with bare Express and supertest reproduces it (5
-  crashes in 16 runs); on Node 22.23 the same script crashed 0 times in 16 and the full suite passed
-  6 runs in 6. The running API is not affected: it served 12,000 requests from a separate client
-  process on Node 24 without dying. CI runs Node 22, and `.nvmrc` pins it; use Node 22 to run
-  `pnpm test:integration` on Windows.
+- **Use Node 22 on Windows, not Node 24.15.0.** On Node 24.15.0 on Windows, a Node process that is
+  both an HTTP server and an HTTP client intermittently exits with `0xC0000409` and no output. It is
+  a runtime fault, not a bug in this code, and it showed up in three places:
+  - a 15-line script with bare Express and supertest: 5 crashes in 16 runs;
+  - the API integration suite, which vitest reports as "Worker exited unexpectedly": roughly a
+    third to a half of runs;
+  - the Next.js production server during the end-to-end suite, which stopped answering part-way
+    through the one full run attempted on Node 24.
 
+  On Node 22.23 the same script crashed 0 times in 16, the API suite passed 7 runs in 7, and the
+  end-to-end suite ran to completion with both servers up. The built API on its own, under 5,400
+  requests from a separate client process on Node 24, did not crash, so a server that makes no
+  outbound HTTP calls appears unaffected; the web app, which calls the API while rendering, is not
+  in that category. `.nvmrc` pins Node 22 and CI runs it. The cause inside Node was not identified.
 - **Guest credits are a speed bump, not security.** Identity is a signed cookie plus an HMAC of the
   client IP. Clearing cookies from a new address resets the allowance. Turnstile raises the cost,
   the global daily LLM cap bounds the damage, and neither makes this airtight. Anything that must

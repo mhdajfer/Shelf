@@ -2,6 +2,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express } from 'express';
 import helmet from 'helmet';
+import swaggerUi from 'swagger-ui-express';
 
 import type { Database } from '@shelf/db';
 
@@ -9,6 +10,7 @@ import { csrfProtection } from './auth/csrf.js';
 import type { OAuthProvider } from './auth/google.js';
 import { identity } from './auth/identity.js';
 import { env } from './config/env.js';
+import { buildOpenApiDocument } from './docs/openapi.js';
 import type { EmailTransport } from './email/transport.js';
 import { AppError, errorHandler, notFoundHandler } from './http/errors.js';
 import type { LlmProvider } from './llm/provider.js';
@@ -80,6 +82,21 @@ export function createApp(deps: AppDeps): Express {
   app.use(httpLogger);
 
   app.use(API_PREFIX, createHealthRouter(deps.health));
+
+  // The API described for consumers other than the web app. Public: it says
+  // nothing a reader of the repository could not already see.
+  const openApi = buildOpenApiDocument(env.PUBLIC_API_URL);
+  app.get(`${API_PREFIX}/openapi.json`, (_req, res) => {
+    res.json(openApi);
+  });
+  app.use(`${API_PREFIX}/docs`, swaggerUi.serve, swaggerUi.setup(openApi));
+
+  // Everything past this point can depend on who is asking, so none of it may
+  // be stored by a shared cache.
+  app.use((_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
 
   // Everything below knows who is asking and refuses forged writes.
   app.use(identity(deps.db));

@@ -37,7 +37,7 @@ export function createMemoryTransport(): EmailTransport & { sent: EmailMessage[]
 }
 
 export function createEmailTransport(): EmailTransport {
-  if (!env.RESEND_API_KEY) return consoleTransport;
+  if (!env.RESEND_API_KEY || env.OFFLINE_MODE) return consoleTransport;
 
   const resend = new Resend(env.RESEND_API_KEY);
   return {

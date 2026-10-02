@@ -109,7 +109,7 @@ export function RunSection({
   /** Variables with neither a value nor a default. A run would send them blank. */
   missing: string[];
 }) {
-  const { user } = useSession();
+  const { user, features } = useSession();
   const queryClient = useQueryClient();
   const { credits, setCredits } = useCredits();
   const [state, setState] = useState<RunState>({ status: 'idle' });
@@ -188,6 +188,12 @@ export function RunSection({
           )}
         </div>
       </div>
+
+      {features.simulatedModel && (
+        <p className="text-sm text-text-subtle">
+          No model key is configured, so answers here are simulated.
+        </p>
+      )}
 
       {missing.length > 0 && !running && (
         <p className="text-sm text-text-muted">

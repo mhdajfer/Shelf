@@ -5,7 +5,9 @@ import tseslint from 'typescript-eslint';
 
 /** Shared flat config for every TypeScript package in the workspace. */
 export const baseConfig = tseslint.config(
-  { ignores: ['dist/**', '.next/**', 'coverage/**', '.turbo/**', 'node_modules/**'] },
+  {
+    ignores: ['dist/**', '.next/**', '.next-e2e/**', 'coverage/**', '.turbo/**', 'node_modules/**'],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {

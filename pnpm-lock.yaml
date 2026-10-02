@@ -211,6 +211,12 @@ importers:
       '@shelf/config':
         specifier: workspace:*
         version: link:packages/config
+      '@shelf/db':
+        specifier: workspace:*
+        version: link:packages/db
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.0
       eslint:
         specifier: 'catalog:'
         version: 10.11.0(jiti@2.7.0)(supports-color@7.2.0)
