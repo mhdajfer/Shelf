@@ -11,6 +11,7 @@ import {
 } from '@shelf/db';
 import {
   changePasswordSchema,
+  deleteAccountSchema,
   forgotPasswordSchema,
   LIMITS,
   loginSchema,
@@ -293,6 +294,48 @@ export function createAuthRouter(deps: AuthDeps): Router {
       }
       throw error;
     }
+  });
+
+  /**
+   * Deletes the account and, by cascade, everything it owns: prompts, versions,
+   * collections, sessions. Confirmed with the password, or for a Google-only
+   * account by typing the handle, so a stolen session alone cannot do it.
+   */
+  router.post('/delete-account', async (req, res) => {
+    const sessionUser = requireUser(req);
+    const input = deleteAccountSchema.parse(req.body);
+    await limits.consume('login', `${clientKey(req)}:${sessionUser.email}`);
+
+    const user = await userRepo.findById(db, sessionUser.id);
+    if (user === null) throw unauthorized();
+
+    const confirmed =
+      user.passwordHash !== null
+        ? await verifyPassword(user.passwordHash, input.password ?? '')
+        : input.confirmHandle?.trim().toLowerCase() === user.handle;
+    if (!confirmed) {
+      throw new AppError(
+        'bad_request',
+        user.passwordHash !== null
+          ? 'That password is incorrect.'
+          : 'Type your handle exactly to confirm.',
+        {
+          details: [
+            {
+              field: user.passwordHash !== null ? 'password' : 'confirmHandle',
+              message:
+                user.passwordHash !== null
+                  ? 'That password is incorrect.'
+                  : 'That does not match your handle.',
+            },
+          ],
+        },
+      );
+    }
+
+    await userRepo.remove(db, user.id);
+    await endSession(db, req, res);
+    res.json({ ok: true });
   });
 
   router.get('/oauth/google', (_req, res) => {

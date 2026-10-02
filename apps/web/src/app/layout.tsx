@@ -3,6 +3,7 @@ import { GeistSans } from 'geist/font/sans';
 
 import { brand } from '@shelf/config';
 
+import { CommandCenter } from '@/components/command-center';
 import { Providers } from '@/components/providers';
 import { SiteHeader } from '@/components/site-header';
 import { getMe } from '@/lib/api-server';
@@ -37,6 +38,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         </a>
         <Providers me={me}>
           <SiteHeader />
+          <CommandCenter />
           <div id="content" className="flex flex-1 flex-col">
             {children}
           </div>

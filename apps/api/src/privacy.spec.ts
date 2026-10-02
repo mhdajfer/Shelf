@@ -268,7 +268,6 @@ describe('guest prompts', () => {
 describe('surfaces still to be covered', () => {
   // Each lands with the phase that introduces the endpoint. Listed here so the
   // gap is visible in the test output rather than only in the brief.
-  it.todo('GET /export refuses a prompt the actor cannot read');
   // Covered end to end, in the browser: e2e/privacy.spec.ts.
   it.todo('the OG image route 404s for a private prompt');
 });

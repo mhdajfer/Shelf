@@ -90,7 +90,7 @@ const tagNames = sql<string[]>`coalesce((
   SELECT array_agg(t.name ORDER BY t.name)
   FROM prompt_tags pt
   JOIN tags t ON t.id = pt.tag_id
-  WHERE pt.prompt_id = ${prompts.id}
+  WHERE pt.prompt_id = "prompts"."id"
 ), ARRAY[]::text[])`;
 
 const summaryColumns = {
@@ -722,6 +722,84 @@ async function listSitemapEntries(
     .limit(limit);
 }
 
+export interface ExportedPromptRecord {
+  title: string;
+  description: string | null;
+  category: string;
+  modelHint: string | null;
+  visibility: Visibility;
+  pinned: boolean;
+  tags: string[];
+  collections: string[];
+  versions: { number: number; body: string; note: string | null; createdAt: Date }[];
+}
+
+/**
+ * A user's whole shelf with full history, for export. Keyed on the owner id
+ * and nothing else, so there is no id a caller could substitute to read
+ * someone else's prompt through it.
+ */
+async function exportOwned(db: Database, userId: string): Promise<ExportedPromptRecord[]> {
+  const owned = await db
+    .select({
+      id: prompts.id,
+      title: prompts.title,
+      description: prompts.description,
+      category: prompts.category,
+      modelHint: prompts.modelHint,
+      visibility: prompts.visibility,
+      pinnedAt: prompts.pinnedAt,
+      tags: tagNames,
+      collections: sql<string[]>`coalesce((
+        SELECT array_agg(c.name ORDER BY c.position, c.name)
+        FROM collection_items ci
+        JOIN collections c ON c.id = ci.collection_id
+        WHERE ci.prompt_id = "prompts"."id" AND c.owner_id = ${userId}
+      ), ARRAY[]::text[])`,
+    })
+    .from(prompts)
+    .where(and(eq(prompts.ownerId, userId), sql`${prompts.status} <> 'deleted'`))
+    .orderBy(asc(prompts.createdAt));
+
+  if (owned.length === 0) return [];
+
+  const versions = await db
+    .select({
+      promptId: promptVersions.promptId,
+      number: promptVersions.number,
+      body: promptVersions.body,
+      note: promptVersions.note,
+      createdAt: promptVersions.createdAt,
+    })
+    .from(promptVersions)
+    .where(
+      inArray(
+        promptVersions.promptId,
+        owned.map((prompt) => prompt.id),
+      ),
+    )
+    .orderBy(asc(promptVersions.number));
+
+  const byPrompt = new Map<string, ExportedPromptRecord['versions']>();
+  for (const { promptId, ...version } of versions) {
+    const list = byPrompt.get(promptId) ?? [];
+    list.push(version);
+    byPrompt.set(promptId, list);
+  }
+
+  return owned.map((prompt) => ({
+    title: prompt.title,
+    description: prompt.description,
+    category: prompt.category,
+    modelHint: prompt.modelHint,
+    visibility: prompt.visibility,
+    pinned: prompt.pinnedAt !== null,
+    tags: prompt.tags,
+    collections: prompt.collections,
+    versions: byPrompt.get(prompt.id) ?? [],
+  }));
+}
+
 export const promptRepo = {
   findVisible,
   findOwned,
@@ -732,6 +810,7 @@ export const promptRepo = {
   recomputeTrending,
   listTopTags,
   listSitemapEntries,
+  exportOwned,
   listPublic,
   searchPublic,
   listOwned,

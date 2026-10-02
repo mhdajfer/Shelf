@@ -15,6 +15,7 @@ export {
   MAX_PAGE_SIZE,
   type AddVersionInput,
   type CreatePromptInput,
+  type ExportedPromptRecord,
   type OwnedListOptions,
   type PromptAuthor,
   type PromptSummary,
@@ -26,9 +27,11 @@ export {
 } from './repositories/promptRepo.js';
 
 export {
+  adminRepo,
   creditRepo,
   reportRepo,
   voteRepo,
+  type AdminOverview,
   type CreditActor,
   type CreditPool,
   type Participant,

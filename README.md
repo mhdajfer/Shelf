@@ -9,9 +9,9 @@ Two faces, one codebase:
 - **Your shelf** — for signed-in users. Private by default, with collections, version history,
   variables, test runs, and version comparison.
 
-> Build status: phase 7 of 9 complete. The API, the public library, the signed-in shelf, and
-> model-backed test runs, comparison, and editor tools are in place; power tools and admin land
-> next, per the [Roadmap](#roadmap).
+> Build status: phase 8 of 9 complete. Everything in the product is built; what remains is the
+> end-to-end test pass, the accessibility and security review, and deploy configuration, per the
+> [Roadmap](#roadmap).
 
 ## Why
 
@@ -318,6 +318,32 @@ link that works without JavaScript.
 | `/new`, `/p/[id]/edit` | The editor. Works for guests too, on the daily allowance          |
 | `/p/[id]/history`     | Every version, with a line diff and restore                        |
 
+| `/settings`           | Profile, password, export and import, delete account               |
+| `/admin`              | The moderation queue. A 404 for anyone who is not an admin         |
+
+**The command palette** (`Ctrl/Cmd+K`) searches your shelf and the public shelf and runs every
+navigation and theme command. Single-key shortcuts cover the rest: `/` focuses search, `N` starts a
+prompt, `G` then `L` or `S` goes to the library or your shelf, `?` lists them all. They are ignored
+while you are typing in a field.
+
+**Theme.** The stylesheet already follows the system preference with no JavaScript. The toggle
+records an explicit choice as `data-theme` on the root, which is all the `light-dark()` tokens need.
+
+**Export and import.** `GET /export` returns one JSON file with every prompt you own, its full
+version history, tags, pins, and collections. `POST /import` reads the same format; each entry is
+validated on its own, so a malformed one is skipped and reported instead of failing the file.
+Imported prompts always arrive **private**, whatever the file says: publishing is a decision made
+per prompt, with the checks that go with it. Any readable prompt also downloads as Markdown from
+`GET /prompts/:id/export`, fenced with more backticks than the body contains.
+
+**Moderation.** `/admin` lists public prompts with open reports and offers two actions: restore to
+the shelf, or remove. The queue is built from reports, and only public prompts can be reported, so
+it has no path to private content; `transfer.spec.ts` asserts an admin cannot resolve a report
+against a private prompt.
+
+**Deleting an account** needs the password (or, for a Google-only account, typing the handle) and
+cascades to every prompt, version, collection, and session the account owned.
+
 **The editor** is CodeMirror 6 with one extension that calls `parseTemplate` from `@shelf/shared`:
 placeholders are marked, malformed ones get a wavy underline and a message under the editor, and
 typing `{{` offers the variables the prompt already uses. The variables list and the live preview
@@ -453,8 +479,8 @@ secrets are still in place.
 | 5     | Search, trending, public library pages with SSR and OG images          | done   |
 | 6     | Signed-in shelf UI: sidebar, collections, editor, variables, history   | done   |
 | 7     | LLM provider layer, test run streaming, compare, tighten, suggestions  | done   |
-| 8     | Command palette, shortcuts, import/export, dark mode toggle, admin     | next   |
-| 9     | Full test pass, accessibility audit, security checklist, deploy config |        |
+| 8     | Command palette, shortcuts, import/export, dark mode toggle, admin     | done   |
+| 9     | Full test pass, accessibility audit, security checklist, deploy config | next   |
 
 ## Known limitations
 

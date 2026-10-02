@@ -1,4 +1,4 @@
-import { History } from 'lucide-react';
+import { Download, History } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -19,6 +19,8 @@ import { routes } from '@/lib/routes';
 import { formatDate, plural } from '@/lib/utils';
 
 type Params = Promise<{ id: string }>;
+
+const API_ORIGIN = process.env.NEXT_PUBLIC_API_ORIGIN ?? '';
 
 /** One fetch per request, shared by the metadata and the page. */
 const getPrompt = cache(async (id: string): Promise<PromptDetailDto | null> => {
@@ -141,7 +143,16 @@ export default async function PromptPage({ params }: { params: Params }) {
             <h2 id="source" className="font-medium">
               Prompt
             </h2>
-            <CopyButton text={prompt.body} variant="ghost" size="sm" label="Copy source" />
+            <div className="flex items-center gap-1">
+              <Button asChild variant="ghost" size="sm">
+                {/* A plain link to the API: the browser downloads the file it returns. */}
+                <a href={`${API_ORIGIN}/api/v1/prompts/${prompt.id}/export`} download>
+                  <Download />
+                  Markdown
+                </a>
+              </Button>
+              <CopyButton text={prompt.body} variant="ghost" size="sm" label="Copy source" />
+            </div>
           </div>
           <PromptBody body={prompt.body} />
         </section>

@@ -1,6 +1,6 @@
 'use client';
 
-import { LogOut, Plus, User } from 'lucide-react';
+import { LogOut, Plus, Search, Settings, Shield, User } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 
 import { brand } from '@shelf/config';
 
+import { openCommandPalette } from '@/components/command-center';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -106,6 +108,20 @@ export function SiteHeader() {
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={openCommandPalette}
+              aria-label="Open the command palette"
+              className="text-text-subtle"
+            >
+              <Search />
+              <span className="max-md:sr-only">Search</span>
+              <kbd className="rounded-sm border border-border-strong px-1 font-mono text-xs max-md:hidden">
+                Ctrl K
+              </kbd>
+            </Button>
+            <ThemeToggle />
             <Button asChild size="sm">
               <Link href={routes.newPrompt}>
                 <Plus />
@@ -137,6 +153,21 @@ export function SiteHeader() {
                       Public profile
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href={routes.settings}>
+                      <Settings />
+                      Settings
+                    </Link>
+                  </DropdownMenuItem>
+                  {user.role === 'admin' && (
+                    <DropdownMenuItem asChild>
+                      <Link href={routes.admin}>
+                        <Shield />
+                        Moderation
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => void signOut()}>
                     <LogOut />
                     Sign out

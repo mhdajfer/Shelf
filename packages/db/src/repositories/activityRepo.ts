@@ -333,6 +333,31 @@ async function modelCallsToday(db: Executor): Promise<number> {
   return usedBy(db, 'model', sql`true`);
 }
 
+export interface AdminOverview {
+  users: number;
+  publicPrompts: number;
+  privatePrompts: number;
+  hiddenPrompts: number;
+  openReports: number;
+  modelCallsToday: number;
+}
+
+/** Headline numbers for the moderation page. Counts only; no private content. */
+async function overview(db: Database): Promise<AdminOverview> {
+  const result = await db.execute<Omit<AdminOverview, 'modelCallsToday'>>(sql`
+    SELECT
+      (SELECT count(*)::int FROM users) AS "users",
+      (SELECT count(*)::int FROM prompts WHERE visibility = 'public' AND status = 'active') AS "publicPrompts",
+      (SELECT count(*)::int FROM prompts WHERE visibility = 'private' AND status <> 'deleted') AS "privatePrompts",
+      (SELECT count(*)::int FROM prompts WHERE status = 'hidden') AS "hiddenPrompts",
+      (SELECT count(*)::int FROM reports WHERE resolved_at IS NULL) AS "openReports"
+  `);
+  const row = result.rows[0];
+  if (row === undefined) throw new Error('overview query returned no row');
+  return { ...row, modelCallsToday: await modelCallsToday(db) };
+}
+
 export const voteRepo = { addVote, removeVote };
+export const adminRepo = { overview };
 export const reportRepo = { addReport, listReported, resolveReports };
 export const creditRepo = { used, spend, refund, modelCallsToday };

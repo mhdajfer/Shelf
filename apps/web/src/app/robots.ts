@@ -9,7 +9,17 @@ export default function robots(): MetadataRoute.Robots {
         userAgent: '*',
         allow: '/',
         // Signed-in surfaces and one-time links have nothing for a crawler.
-        disallow: ['/shelf', '/sign-in', '/sign-up', '/reset-password', '/verify-email', '/api/'],
+        disallow: [
+          '/shelf',
+          '/settings',
+          '/admin',
+          '/new',
+          '/sign-in',
+          '/sign-up',
+          '/reset-password',
+          '/verify-email',
+          '/api/',
+        ],
       },
     ],
     sitemap: `${origin}/sitemap.xml`,

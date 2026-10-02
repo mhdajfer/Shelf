@@ -6,6 +6,8 @@ export const routes = {
   promptHistory: (id: string) => `/p/${id}/history`,
   newPrompt: '/new',
   shelf: '/shelf',
+  settings: '/settings',
+  admin: '/admin',
   profile: (handle: string) => `/u/${handle}`,
   signIn: (next?: string) =>
     next === undefined ? '/sign-in' : `/sign-in?next=${encodeURIComponent(next)}`,

@@ -13,12 +13,14 @@ import type { EmailTransport } from './email/transport.js';
 import { AppError, errorHandler, notFoundHandler } from './http/errors.js';
 import type { LlmProvider } from './llm/provider.js';
 import { httpLogger } from './observability/logger.js';
+import { createAdminRouter } from './routes/admin.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createCollectionRouter } from './routes/collections.js';
 import { createHealthRouter, type HealthChecks } from './routes/health.js';
 import { createLibraryRouter } from './routes/library.js';
 import { createPromptRouter } from './routes/prompts.js';
 import { createRunRouter } from './routes/runs.js';
+import { createTransferRouter } from './routes/transfer.js';
 import type { BotCheck } from './security/botCheck.js';
 import type { RateLimits } from './security/rateLimit.js';
 
@@ -70,6 +72,9 @@ export function createApp(deps: AppDeps): Express {
     }),
   );
 
+  // An export file is far larger than any other request body. Its parser runs
+  // first; the general one below then sees the body already parsed and skips.
+  app.use(`${API_PREFIX}/import`, express.json({ limit: '8mb' }));
   app.use(express.json({ limit: '64kb' }));
   app.use(cookieParser());
   app.use(httpLogger);
@@ -86,6 +91,8 @@ export function createApp(deps: AppDeps): Express {
   app.use(API_PREFIX, createPromptRouter(deps));
   app.use(API_PREFIX, createLibraryRouter(deps));
   app.use(API_PREFIX, createRunRouter(deps));
+  app.use(API_PREFIX, createTransferRouter(deps));
+  app.use(API_PREFIX, createAdminRouter(deps));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

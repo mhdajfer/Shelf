@@ -1,6 +1,7 @@
 'use client';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ThemeProvider } from 'next-themes';
 import { useState, type ReactNode } from 'react';
 import { Toaster } from 'sonner';
 
@@ -29,7 +30,16 @@ export function Providers({ me, children }: { me: MeDto; children: ReactNode }) 
 
   return (
     <QueryClientProvider client={queryClient}>
-      <SessionProvider me={me}>{children}</SessionProvider>
+      {/* Writes the choice to data-theme on <html>, which is what the tokens key
+          off. "system" resolves to light or dark, so the attribute is always set. */}
+      <ThemeProvider
+        attribute="data-theme"
+        defaultTheme="system"
+        enableSystem
+        disableTransitionOnChange
+      >
+        <SessionProvider me={me}>{children}</SessionProvider>
+      </ThemeProvider>
       <Toaster
         position="bottom-right"
         toastOptions={{
