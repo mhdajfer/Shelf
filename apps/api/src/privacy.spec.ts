@@ -22,9 +22,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
  * that can return a prompt: user B cannot learn that user A's private prompt
  * exists, by any route.
  *
- * At this phase the surfaces are repository calls. HTTP cases are added to this
- * file as the endpoints land, so the matrix grows rather than being rewritten;
- * the `it.todo` entries at the bottom name the ones still missing.
+ * This file covers the repository surfaces. The same rule is asserted over HTTP
+ * in privacy.http.spec.ts, and in a browser, including the share image and the
+ * sitemap, in e2e/privacy.spec.ts.
  */
 let harness: TestDatabase;
 let db: Database;
@@ -72,7 +72,7 @@ beforeEach(async () => {
   });
 
   aliceCollectionId = await collectionRepo.createCollection(db, alice.id, 'Internal');
-  await collectionRepo.addItem(db, aliceCollectionId, secretId);
+  await collectionRepo.addItem(db, alice.id, aliceCollectionId, secretId);
 });
 
 /**
@@ -263,18 +263,4 @@ describe('guest prompts', () => {
     await makeGuestPrompt(db, GUEST_A);
     expect(await promptRepo.listOwned(db, guestActor(GUEST_A), {})).toEqual([]);
   });
-});
-
-describe('surfaces still to be covered', () => {
-  // Each lands with the phase that introduces the endpoint. Listed here so the
-  // gap is visible in the test output rather than only in the brief.
-  it.todo('HTTP GET /prompts/:id returns 404, not 403, for another actor');
-  it.todo('HTTP GET /search never returns a private prompt');
-  it.todo('POST /prompts/:id/fork refuses a prompt the actor cannot read');
-  it.todo('POST /runs refuses a prompt version the actor cannot read');
-  it.todo('POST /prompts/:id/vote and /report refuse an unreadable prompt');
-  it.todo('GET /export refuses a prompt the actor cannot read');
-  it.todo('the OG image route 404s for a private prompt');
-  it.todo('the sitemap lists only public, active prompts');
-  it.todo("a profile page lists only that user's public prompts");
 });

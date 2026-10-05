@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 
 import {
+  TRENDING,
   type Category,
   type PromptStatus,
   type PublicSort,
@@ -89,7 +90,7 @@ const tagNames = sql<string[]>`coalesce((
   SELECT array_agg(t.name ORDER BY t.name)
   FROM prompt_tags pt
   JOIN tags t ON t.id = pt.tag_id
-  WHERE pt.prompt_id = ${prompts.id}
+  WHERE pt.prompt_id = "prompts"."id"
 ), ARRAY[]::text[])`;
 
 const summaryColumns = {
@@ -162,6 +163,8 @@ export interface PublicListOptions {
   category?: Category;
   tags?: string[];
   modelHint?: string;
+  /** Restricts to one signed-up author, for their public profile. */
+  authorHandle?: string;
   limit?: number;
   offset?: number;
 }
@@ -194,6 +197,9 @@ function publicFilters(options: PublicListOptions): SQL[] {
   if (options.category !== undefined) clauses.push(sql`${prompts.category} = ${options.category}`);
   if (options.modelHint !== undefined && options.modelHint.trim() !== '') {
     clauses.push(sql`${prompts.modelHint} ILIKE ${`%${options.modelHint.trim()}%`}`);
+  }
+  if (options.authorHandle !== undefined) {
+    clauses.push(sql`${users.handle} = ${options.authorHandle.toLowerCase()}`);
   }
   clauses.push(...tagFilters(options.tags ?? []));
   return clauses;
@@ -363,6 +369,22 @@ async function listForks(db: Database, promptId: string, limit = 20): Promise<Pr
   return rows.map(toSummary);
 }
 
+/** The numbers beside the sidebar's fixed entries. */
+async function shelfCounts(
+  db: Database,
+  userId: string,
+): Promise<{ total: number; pinned: number; public: number }> {
+  const [row] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      pinned: sql<number>`count(*) FILTER (WHERE ${prompts.pinnedAt} IS NOT NULL)::int`,
+      public: sql<number>`count(*) FILTER (WHERE ${prompts.visibility} = 'public')::int`,
+    })
+    .from(prompts)
+    .where(and(eq(prompts.ownerId, userId), sql`${prompts.status} <> 'deleted'`));
+  return row ?? { total: 0, pinned: 0, public: 0 };
+}
+
 async function countOwned(db: Database, userId: string): Promise<number> {
   const rows = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -387,7 +409,25 @@ export interface CreatePromptInput {
 }
 
 async function replaceTags(db: Executor, promptId: string, names: string[]): Promise<void> {
-  const normalised = [...new Set(names.map((name) => name.trim().toLowerCase()).filter(Boolean))];
+  const normalised = [
+    ...new Set(names.map((name) => name.trim().toLowerCase()).filter(Boolean)),
+  ].sort();
+
+  const current = await db
+    .select({ name: tags.name })
+    .from(promptTags)
+    .innerJoin(tags, eq(tags.id, promptTags.tagId))
+    .where(eq(promptTags.promptId, promptId))
+    .orderBy(asc(tags.name));
+
+  // Rewriting an unchanged set would still fire the triggers that refresh the
+  // search vector and bump updated_at.
+  if (
+    current.length === normalised.length &&
+    current.every((tag, index) => tag.name === normalised[index])
+  ) {
+    return;
+  }
 
   await db.delete(promptTags).where(eq(promptTags.promptId, promptId));
   if (normalised.length === 0) return;
@@ -455,6 +495,13 @@ async function create(db: Database, input: CreatePromptInput): Promise<string> {
 
     await replaceTags(tx, prompt.id, input.tags ?? []);
 
+    if (input.forkedFromId != null) {
+      await tx
+        .update(prompts)
+        .set({ forkCount: sql`${prompts.forkCount} + 1` })
+        .where(eq(prompts.id, input.forkedFromId));
+    }
+
     return prompt.id;
   });
 }
@@ -497,6 +544,161 @@ async function addVersion(
   });
 }
 
+/** The actor's own prompts, as a predicate. Null for an actor who can own nothing. */
+function ownedBy(actor: Actor): SQL | null {
+  switch (actor.type) {
+    case 'user':
+      return sql`${prompts.ownerId} = ${actor.userId}`;
+    case 'guest':
+      return sql`${prompts.guestId} = ${actor.guestId}`;
+    case 'anonymous':
+      return null;
+  }
+}
+
+/**
+ * The prompt, but only if the actor wrote it. Every write path starts here, so
+ * "can read" never quietly becomes "can edit". An admin is not an owner.
+ */
+async function findOwned(db: Database, actor: Actor, id: string): Promise<PromptSummary | null> {
+  const owner = ownedBy(actor);
+  if (owner === null) return null;
+
+  const rows = await baseSelect(db)
+    .where(and(sql`${prompts.id} = ${id}`, owner, sql`${prompts.status} <> 'deleted'`))
+    .limit(1);
+  const row = rows[0];
+  return row === undefined ? null : toSummary(row);
+}
+
+export interface ViewerState {
+  isOwner: boolean;
+  hasVoted: boolean;
+}
+
+/** What the listed prompts are to this actor, in one query for the whole page. */
+async function viewerStates(
+  db: Database,
+  actor: Actor,
+  ids: string[],
+): Promise<Map<string, ViewerState>> {
+  const states = new Map<string, ViewerState>();
+  if (ids.length === 0 || actor.type === 'anonymous') return states;
+
+  const owner = ownedBy(actor) ?? sql`false`;
+  const voter =
+    actor.type === 'user' ? sql`v.user_id = ${actor.userId}` : sql`v.guest_id = ${actor.guestId}`;
+
+  // Drizzle leaves column names unqualified in a single-table select, so the
+  // correlated subquery names the outer table explicitly; a bare "id" inside it
+  // would resolve to votes.id.
+  const rows = await db
+    .select({
+      id: prompts.id,
+      isOwner: sql<boolean>`${owner}`,
+      hasVoted: sql<boolean>`EXISTS (
+        SELECT 1 FROM votes v WHERE v.prompt_id = "prompts"."id" AND ${voter}
+      )`,
+    })
+    .from(prompts)
+    .where(inArray(prompts.id, ids));
+
+  for (const row of rows) states.set(row.id, { isOwner: row.isOwner, hasVoted: row.hasVoted });
+  return states;
+}
+
+async function countPublic(db: Database, options: PublicListOptions = {}): Promise<number> {
+  const clauses = publicFilters(options);
+  if (options.sort === 'top_week') {
+    clauses.push(sql`${prompts.createdAt} > now() - interval '7 days'`);
+  }
+  const rows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(prompts)
+    .leftJoin(users, eq(users.id, prompts.ownerId))
+    .where(and(...clauses));
+  return rows[0]?.count ?? 0;
+}
+
+async function countSearchPublic(db: Database, options: SearchOptions): Promise<number> {
+  const query = options.query.trim();
+  if (query === '') return 0;
+  const rows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(prompts)
+    .leftJoin(users, eq(users.id, prompts.ownerId))
+    .where(and(...publicFilters(options), matchQuery(query)));
+  return rows[0]?.count ?? 0;
+}
+
+export interface UpdatePromptInput {
+  title?: string;
+  description?: string | null;
+  category?: Category;
+  modelHint?: string | null;
+  visibility?: Visibility;
+  pinned?: boolean;
+  tags?: string[];
+}
+
+/** Callers establish ownership with findOwned first; this does not check it. */
+async function updateMeta(db: Database, id: string, input: UpdatePromptInput): Promise<void> {
+  await db.transaction(async (tx) => {
+    const values: Partial<typeof prompts.$inferInsert> = {};
+    if (input.title !== undefined) values.title = input.title;
+    if (input.description !== undefined) values.description = input.description;
+    if (input.category !== undefined) values.category = input.category;
+    if (input.modelHint !== undefined) values.modelHint = input.modelHint;
+    if (input.visibility !== undefined) values.visibility = input.visibility;
+    if (input.pinned !== undefined) values.pinnedAt = input.pinned ? new Date() : null;
+
+    if (Object.keys(values).length > 0) {
+      await tx.update(prompts).set(values).where(eq(prompts.id, id));
+    }
+    if (input.tags !== undefined) await replaceTags(tx, id, input.tags);
+  });
+}
+
+export const FORK_CONSTRAINT = 'prompts_one_fork_per_owner_key';
+
+/** The user's live fork of a prompt, if they have one. */
+async function findForkId(db: Executor, userId: string, sourceId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: prompts.id })
+    .from(prompts)
+    .where(
+      and(
+        eq(prompts.ownerId, userId),
+        eq(prompts.forkedFromId, sourceId),
+        sql`${prompts.status} <> 'deleted'`,
+      ),
+    )
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/**
+ * Soft-deletes a prompt. If it was a fork, the source's fork count goes down
+ * with it, so the count always means forks that still exist. Callers establish
+ * ownership first.
+ */
+async function softDelete(db: Database, promptId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [removed] = await tx
+      .update(prompts)
+      .set({ status: 'deleted' })
+      .where(and(eq(prompts.id, promptId), sql`${prompts.status} <> 'deleted'`))
+      .returning({ forkedFromId: prompts.forkedFromId });
+
+    if (removed?.forkedFromId != null) {
+      await tx
+        .update(prompts)
+        .set({ forkCount: sql`GREATEST(${prompts.forkCount} - 1, 0)` })
+        .where(eq(prompts.id, removed.forkedFromId));
+    }
+  });
+}
+
 async function setStatus(db: Database, promptId: string, status: PromptStatus): Promise<void> {
   await db.update(prompts).set({ status }).where(eq(prompts.id, promptId));
 }
@@ -512,8 +714,145 @@ async function listCategoriesWithCounts(
     .orderBy(asc(prompts.category));
 }
 
+/**
+ * The same formula as `trendingScore` in @shelf/shared, evaluated in SQL so the
+ * whole public shelf is rescored in one statement. The constants come from the
+ * shared module, so the two cannot drift apart.
+ */
+async function recomputeTrending(db: Database): Promise<number> {
+  const result = await db.execute(sql`
+    UPDATE prompts
+    SET trending_score = (
+      (upvote_count + ${TRENDING.forkWeight} * fork_count)::double precision
+      / power(
+          GREATEST(extract(epoch FROM (now() - created_at)) / 3600.0, 0) + ${TRENDING.timeOffsetHours},
+          ${TRENDING.gravity}::double precision
+        )
+    )::real
+    WHERE visibility = 'public' AND status = 'active'
+  `);
+  return result.rowCount ?? 0;
+}
+
+/** The most used tags on the public shelf, for the filter chips. */
+async function listTopTags(db: Database, limit = 16): Promise<{ name: string; count: number }[]> {
+  const result = await db.execute<{ name: string; count: number }>(sql`
+    SELECT t.name, count(*)::int AS count
+    FROM prompt_tags pt
+    JOIN tags t ON t.id = pt.tag_id
+    JOIN prompts p ON p.id = pt.prompt_id
+    WHERE p.visibility = 'public' AND p.status = 'active'
+    GROUP BY t.name
+    ORDER BY count DESC, t.name
+    LIMIT ${Math.min(Math.max(limit, 1), 50)}
+  `);
+  return result.rows;
+}
+
+/** Everything a crawler may be told about: public, active prompts only. */
+async function listSitemapEntries(
+  db: Database,
+  limit = 5000,
+): Promise<{ id: string; updatedAt: Date }[]> {
+  return db
+    .select({ id: prompts.id, updatedAt: prompts.updatedAt })
+    .from(prompts)
+    .where(PUBLIC_ONLY)
+    .orderBy(desc(prompts.updatedAt))
+    .limit(limit);
+}
+
+export interface ExportedPromptRecord {
+  title: string;
+  description: string | null;
+  category: string;
+  modelHint: string | null;
+  visibility: Visibility;
+  pinned: boolean;
+  tags: string[];
+  collections: string[];
+  versions: { number: number; body: string; note: string | null; createdAt: Date }[];
+}
+
+/**
+ * A user's whole shelf with full history, for export. Keyed on the owner id
+ * and nothing else, so there is no id a caller could substitute to read
+ * someone else's prompt through it.
+ */
+async function exportOwned(db: Database, userId: string): Promise<ExportedPromptRecord[]> {
+  const owned = await db
+    .select({
+      id: prompts.id,
+      title: prompts.title,
+      description: prompts.description,
+      category: prompts.category,
+      modelHint: prompts.modelHint,
+      visibility: prompts.visibility,
+      pinnedAt: prompts.pinnedAt,
+      tags: tagNames,
+      collections: sql<string[]>`coalesce((
+        SELECT array_agg(c.name ORDER BY c.position, c.name)
+        FROM collection_items ci
+        JOIN collections c ON c.id = ci.collection_id
+        WHERE ci.prompt_id = "prompts"."id" AND c.owner_id = ${userId}
+      ), ARRAY[]::text[])`,
+    })
+    .from(prompts)
+    .where(and(eq(prompts.ownerId, userId), sql`${prompts.status} <> 'deleted'`))
+    .orderBy(asc(prompts.createdAt));
+
+  if (owned.length === 0) return [];
+
+  const versions = await db
+    .select({
+      promptId: promptVersions.promptId,
+      number: promptVersions.number,
+      body: promptVersions.body,
+      note: promptVersions.note,
+      createdAt: promptVersions.createdAt,
+    })
+    .from(promptVersions)
+    .where(
+      inArray(
+        promptVersions.promptId,
+        owned.map((prompt) => prompt.id),
+      ),
+    )
+    .orderBy(asc(promptVersions.number));
+
+  const byPrompt = new Map<string, ExportedPromptRecord['versions']>();
+  for (const { promptId, ...version } of versions) {
+    const list = byPrompt.get(promptId) ?? [];
+    list.push(version);
+    byPrompt.set(promptId, list);
+  }
+
+  return owned.map((prompt) => ({
+    title: prompt.title,
+    description: prompt.description,
+    category: prompt.category,
+    modelHint: prompt.modelHint,
+    visibility: prompt.visibility,
+    pinned: prompt.pinnedAt !== null,
+    tags: prompt.tags,
+    collections: prompt.collections,
+    versions: byPrompt.get(prompt.id) ?? [],
+  }));
+}
+
 export const promptRepo = {
   findVisible,
+  findOwned,
+  viewerStates,
+  countPublic,
+  countSearchPublic,
+  updateMeta,
+  findForkId,
+  softDelete,
+  recomputeTrending,
+  listTopTags,
+  listSitemapEntries,
+  exportOwned,
   listPublic,
   searchPublic,
   listOwned,
@@ -522,6 +861,7 @@ export const promptRepo = {
   findVersion,
   listForks,
   countOwned,
+  shelfCounts,
   listCategoriesWithCounts,
   create,
   addVersion,

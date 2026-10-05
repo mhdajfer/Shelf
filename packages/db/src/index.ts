@@ -12,15 +12,57 @@ export { ANONYMOUS, guestActor, isAdmin, userActor, type Actor } from './reposit
 
 export {
   promptRepo,
+  FORK_CONSTRAINT,
   MAX_PAGE_SIZE,
   type AddVersionInput,
   type CreatePromptInput,
+  type ExportedPromptRecord,
   type OwnedListOptions,
   type PromptAuthor,
   type PromptSummary,
   type PromptVersionRecord,
   type PublicListOptions,
   type SearchOptions,
+  type UpdatePromptInput,
+  type ViewerState,
 } from './repositories/promptRepo.js';
 
-export { collectionRepo, type CollectionRecord } from './repositories/collectionRepo.js';
+export {
+  adminRepo,
+  creditRepo,
+  reportRepo,
+  voteRepo,
+  type AdminOverview,
+  type CreditActor,
+  type CreditPool,
+  type Participant,
+  type ReportedPrompt,
+  type ReportOutcome,
+  type SpendResult,
+} from './repositories/activityRepo.js';
+
+export {
+  collectionRepo,
+  COLLECTION_NAME_CONSTRAINT,
+  type CollectionRecord,
+} from './repositories/collectionRepo.js';
+
+export {
+  userRepo,
+  USER_EMAIL_CONSTRAINT,
+  USER_HANDLE_CONSTRAINT,
+  type CreateUserInput,
+  type PublicProfile,
+  type UserRecord,
+} from './repositories/userRepo.js';
+
+export { sessionRepo, type SessionRecord } from './repositories/sessionRepo.js';
+
+export {
+  runRepo,
+  type RecordRunInput,
+  type RunRecord,
+  type RunStatus,
+} from './repositories/runRepo.js';
+
+export { uniqueViolation } from './errors.js';

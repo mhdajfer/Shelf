@@ -1,0 +1,88 @@
+# Render blueprint for the API. The web app deploys to Vercel (apps/web), the
+# database to Neon, and Redis to Upstash; their URLs are pasted in as secrets.
+#
+# Values marked `sync: false` are prompted for on first deploy and never stored
+# in this file.
+services:
+  - type: web
+    name: shelf-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: API_PORT
+        value: 4000
+
+      # Sibling subdomains, so one parent-domain cookie covers both.
+      - key: PUBLIC_WEB_URL
+        sync: false # https://shelf.example
+      - key: PUBLIC_API_URL
+        sync: false # https://api.shelf.example
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false # https://shelf.example
+      - key: COOKIE_DOMAIN
+        sync: false # .shelf.example
+
+      - key: DATABASE_URL
+        sync: false # Neon, with ?sslmode=require
+      - key: REDIS_URL
+        sync: false # Upstash, rediss://
+
+      # The API refuses to start in production while these hold dev values.
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: GUEST_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false # https://api.shelf.example/api/v1/auth/oauth/google/callback
+      - key: TURNSTILE_SITE_KEY
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+
+  # A free web service sleeps when idle, and the in-process scheduler sleeps
+  # with it. This wakes the API and recomputes trending on a clock regardless.
+  - type: cron
+    name: shelf-trending
+    runtime: image
+    image:
+      url: docker.io/curlimages/curl:latest
+    schedule: '*/15 * * * *'
+    dockerCommand: >-
+      curl --fail --silent --show-error --max-time 60 -X POST
+      -H "Authorization: Bearer $CRON_SECRET"
+      "$PUBLIC_API_URL/api/v1/cron/trending"
+    envVars:
+      - key: CRON_SECRET
+        fromService:
+          type: web
+          name: shelf-api
+          envVarKey: CRON_SECRET
+      - key: PUBLIC_API_URL
+        fromService:
+          type: web
+          name: shelf-api
+          envVarKey: PUBLIC_API_URL

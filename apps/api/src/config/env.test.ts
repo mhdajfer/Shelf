@@ -41,6 +41,28 @@ describe('parseEnv', () => {
     expect(env.NODE_ENV).toBe('production');
   });
 
+  it('reads the test switches as booleans, off by default', () => {
+    expect(parseEnv({})).toMatchObject({ OFFLINE_MODE: false, RATE_LIMIT_DISABLED: false });
+    expect(parseEnv({ OFFLINE_MODE: 'true', RATE_LIMIT_DISABLED: '1' })).toMatchObject({
+      OFFLINE_MODE: true,
+      RATE_LIMIT_DISABLED: true,
+    });
+    expect(() => parseEnv({ OFFLINE_MODE: 'yes' })).toThrow(/OFFLINE_MODE/);
+  });
+
+  it('refuses the test switches in production', () => {
+    const secrets = {
+      NODE_ENV: 'production',
+      SESSION_SECRET: 'x'.repeat(48),
+      GUEST_SECRET: 'y'.repeat(48),
+      CRON_SECRET: 'z'.repeat(32),
+    };
+    expect(() => parseEnv({ ...secrets, RATE_LIMIT_DISABLED: 'true' })).toThrow(
+      /RATE_LIMIT_DISABLED must not be set in production/,
+    );
+    expect(() => parseEnv({ ...secrets, OFFLINE_MODE: 'true' })).toThrow(/OFFLINE_MODE/);
+  });
+
   it('leaves optional model and email keys unset', () => {
     const env = parseEnv({});
     expect(env.GEMINI_API_KEY).toBeUndefined();

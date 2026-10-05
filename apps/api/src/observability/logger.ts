@@ -39,6 +39,12 @@ export const logger = pino({
 
 export const httpLogger = pinoHttp({
   logger,
+  // One line per request. The default serializers print every header, which
+  // buries the application's own log lines and is where a credential would leak.
+  serializers: {
+    req: (req: { method: string; url: string }) => ({ method: req.method, url: req.url }),
+    res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
+  },
   genReqId: (req, res) => {
     const existing = req.headers['x-request-id'];
     const id = typeof existing === 'string' && existing.length > 0 ? existing : randomUUID();

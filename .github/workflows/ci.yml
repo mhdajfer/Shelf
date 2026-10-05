@@ -83,6 +83,62 @@ jobs:
 
       - run: pnpm test:integration
 
+  e2e:
+    name: end-to-end
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: shelf
+          POSTGRES_PASSWORD: shelf
+          POSTGRES_DB: shelf
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U shelf -d shelf"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Playwright derives shelf_e2e from this, and creates and seeds it.
+      DATABASE_URL: postgresql://shelf:shelf@localhost:5432/shelf
+      REDIS_URL: redis://localhost:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec playwright install --with-deps chromium
+
+      # Builds the web app for production and runs it against an offline API:
+      # the fake model, console email, rate limiters off.
+      - run: pnpm test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
   audit:
     name: dependency audit
     runs-on: ubuntu-latest

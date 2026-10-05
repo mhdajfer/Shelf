@@ -9,9 +9,8 @@ Two faces, one codebase:
 - **Your shelf** — for signed-in users. Private by default, with collections, version history,
   variables, test runs, and version comparison.
 
-> Build status: phase 2 of 9 complete. The monorepo, template engine, schema, and the repository
-> layer that enforces privacy are in place; auth, the API surface, and the UI land in the phases
-> listed in [Roadmap](#roadmap).
+> Build status: all nine phases of the [Roadmap](#roadmap) are complete. It has not been deployed;
+> see [Deploying](#deploying) and [Known limitations](#known-limitations).
 
 ## Why
 
@@ -218,6 +217,169 @@ prompt.
 Reads return `null` rather than throwing, so the route answers **404, not 403**, for another actor's
 prompt. 403 would confirm it exists.
 
+## Prompt API
+
+Every route lives under `/api/v1`. Reads take the actor from the session or guest cookie and go
+through `readableBy`; writes first establish ownership with `promptRepo.findOwned`.
+
+| Method and path                                  | What it does                                               |
+| ------------------------------------------------ | ---------------------------------------------------------- |
+| `GET /prompts`                                   | Public listing: `sort`, `category`, `tag`, `model`, `q`    |
+| `POST /prompts`                                  | Create. Private by default for users, public for guests    |
+| `GET /prompts/:id`                               | One prompt, with what it is to the viewer                  |
+| `PATCH /prompts/:id`                             | Edit. A changed body saves a new version                   |
+| `DELETE /prompts/:id`                            | Soft delete                                                |
+| `GET /prompts/:id/versions[/:versionId]`         | History                                                    |
+| `GET /prompts/:id/diff?from=&to=`                | Line diff; defaults to current against previous            |
+| `POST /prompts/:id/versions/:versionId/restore`  | Appends the old body as a new version                      |
+| `POST` / `DELETE /prompts/:id/fork`              | Fork onto your shelf, with lineage; undo it                |
+| `PUT` / `DELETE /prompts/:id/vote`               | Upvote, idempotent per voter                               |
+| `POST /prompts/:id/report`                       | Report; three different reporters hide the prompt          |
+| `GET /shelf/prompts`                             | The signed-in user's own prompts                           |
+| `GET /credits`                                   | Today's remaining allowance                                |
+| `GET /shelf/summary`                             | Sidebar counts and collections                             |
+| `POST` / `PATCH` / `DELETE /collections[/:id]`   | Manage collections; `PUT /collections/order` reorders      |
+| `PUT` / `DELETE /collections/:id/prompts/:promptId` | File a prompt, only when you own both                   |
+
+Status codes carry meaning: **404** for a prompt you cannot read (whether or not it exists),
+**403** for a public prompt you can read but do not own, **402** when the day's credits are spent,
+**429** when a rate limit trips.
+
+**One fork per user.** A user can hold one live fork of a given prompt, and cannot fork a prompt
+they already own (including a fork they made); either `POST` answers 409. The rule is a partial unique index on `(owner_id, forked_from_id)`, so requests that race
+cannot both win. `DELETE /prompts/:id/fork` removes the caller's copy and frees the slot, and
+`fork_count` counts forks that still exist: deleting a fork, either way, lowers it.
+
+**Credits** are a check-and-debit under a per-actor Postgres advisory lock, so requests racing for
+the last credit cannot both win. A guest is metered by cookie *and* by hashed address, taking
+whichever count is higher. Signed-in users are not metered on creation, only on model calls.
+
+**`updated_at` means "the author changed this".** Migration `0002` narrows the trigger to authored
+columns, so an upvote, a pin, or a trending recompute no longer reshuffles the owner's shelf.
+
+## Model calls
+
+Everything model-backed goes through one interface, `LlmProvider`, with two implementations:
+`GeminiProvider` when `GEMINI_API_KEY` is set and `FakeProvider` when it is not. The fake streams
+word by word, takes time, honours cancellation, and reports token counts, so credits, refunds, SSE,
+and the UI are all exercised with no key and no network. The integration tests use it too.
+
+| Endpoint               | What it does                                                             |
+| ---------------------- | ------------------------------------------------------------------------ |
+| `POST /runs`           | Renders a version with its inputs, streams the answer as server-sent events |
+| `GET /prompts/:id/runs` | Your own earlier runs of a prompt                                       |
+| `POST /tools/tighten`  | Proposes a shorter rewrite; reports any `{{placeholder}}` it lost        |
+| `POST /tools/suggest`  | Returns up to five structured suggestions                                |
+
+A run is admitted in the order that costs least: rate limit, then the global daily ceiling, then the
+actor's own credit, which is debited before the call. Everything that can refuse happens **before
+the first byte**, so a refusal is ordinary JSON with a real status code (402, 404, 429, 503); once
+the stream is open, failure is an `error` event. A timeout or provider failure **refunds** the credit
+with a compensating ledger row. A run the user stops is not refunded, since the model was called and
+otherwise "start, read, stop" would be free.
+
+Runs are private to whoever made them. A run stores what its author typed into the variables, so
+not even the prompt's owner can list someone else's runs of it.
+
+`POST /runs` is a POST with a body and a CSRF header, which `EventSource` cannot send, so the web
+client reads the stream from `fetch` and parses the event framing itself (`lib/run-stream.ts`).
+Model output is rendered as Markdown through `react-markdown` with `rehype-sanitize`; an ESLint
+rule forbids `dangerouslySetInnerHTML` across the web app.
+
+**Comparing versions** runs two versions on the same inputs side by side, on the history page under
+the diff: the diff shows what changed in the prompt, the comparison shows what the change did to the
+answer.
+
+## Search and ranking
+
+Search is Postgres full-text over the trigger-maintained `search_vector`, queried with
+`websearch_to_tsquery`, so quoted phrases and `-exclusions` work and stray punctuation cannot raise.
+Results rank by `ts_rank_cd`, which respects the A-D weighting (title, tags, description, body).
+
+Trending is `(upvotes + 2 x forks) / (age_hours + 2)^1.5`. The score is stored, because a decay
+formula in `ORDER BY` cannot use an index, and recomputed for the whole public shelf in one `UPDATE`
+every 15 minutes by an in-process cron job and once at boot. `library.spec.ts` asserts the SQL
+agrees with `trendingScore()` in `@shelf/shared`; both read the same constants. For hosts that sleep,
+`POST /api/v1/cron/trending` with `Authorization: Bearer $CRON_SECRET` does the same on demand.
+
+## The web app
+
+Public pages are server-rendered by fetching the API with the visitor's cookies forwarded, so the
+API resolves the same actor it would for a browser request and there is one place that decides what
+anyone may see. The library keeps its state in the URL: every filter, sort, and page is a plain
+link that works without JavaScript.
+
+| Route                 | What it is                                                         |
+| --------------------- | ------------------------------------------------------------------ |
+| `/`                   | The public shelf: search, category and tag filters, four sorts     |
+| `/p/[id]`             | A prompt: source, a fill-in-the-variables panel, vote, fork, report |
+| `/p/[id]/opengraph-image` | Share image, rendered with `next/og` from the shared palette   |
+| `/u/[handle]`         | A public profile                                                   |
+| `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password`, `/verify-email` | Account flows |
+| `/sitemap.xml`, `/robots.txt` | Public, active prompts only                                |
+
+| `/shelf`              | Your prompts: all, pinned, by collection, and searchable           |
+| `/new`, `/p/[id]/edit` | The editor. Works for guests too, on the daily allowance          |
+| `/p/[id]/history`     | Every version, with a line diff and restore                        |
+
+| `/settings`           | Profile, password, export and import, delete account               |
+| `/admin`              | The moderation queue. A 404 for anyone who is not an admin         |
+
+**The command palette** (`Ctrl/Cmd+K`) searches your shelf and the public shelf and runs every
+navigation and theme command. Single-key shortcuts cover the rest: `/` focuses search, `N` starts a
+prompt, `G` then `L` or `S` goes to the library or your shelf, `?` lists them all. They are ignored
+while you are typing in a field.
+
+**Theme.** The stylesheet already follows the system preference with no JavaScript. The toggle
+records an explicit choice as `data-theme` on the root, which is all the `light-dark()` tokens need.
+
+**Export and import.** `GET /export` returns one JSON file with every prompt you own, its full
+version history, tags, pins, and collections. `POST /import` reads the same format; each entry is
+validated on its own, so a malformed one is skipped and reported instead of failing the file.
+Imported prompts always arrive **private**, whatever the file says: publishing is a decision made
+per prompt, with the checks that go with it. Any readable prompt also downloads as Markdown from
+`GET /prompts/:id/export`, fenced with more backticks than the body contains.
+
+**Moderation.** `/admin` lists public prompts with open reports and offers two actions: restore to
+the shelf, or remove. The queue is built from reports, and only public prompts can be reported, so
+it has no path to private content; `transfer.spec.ts` asserts an admin cannot resolve a report
+against a private prompt.
+
+**Deleting an account** needs the password (or, for a Google-only account, typing the handle) and
+cascades to every prompt, version, collection, and session the account owned.
+
+**The editor** is CodeMirror 6 with one extension that calls `parseTemplate` from `@shelf/shared`:
+placeholders are marked, malformed ones get a wavy underline and a message under the editor, and
+typing `{{` offers the variables the prompt already uses. The variables list and the live preview
+beside it read the same parse, so the editor, the preview, and the API cannot disagree about what a
+variable is. `Ctrl/Cmd+S` saves; a save that changes the body asks what changed and stores the
+answer with the new version.
+
+**Collections** reorder by drag and drop (dnd-kit), including from the keyboard: focus a handle,
+`Space` to lift, arrows to move. Shelf state lives in the URL, so a filtered view can be bookmarked.
+
+The share image and the sitemap fetch **anonymously**, never with the visitor's cookies: both are
+cached by third parties, so they may only ever contain what a signed-out visitor can read.
+
+## Authentication
+
+Sessions are opaque random tokens in an `HttpOnly`, `SameSite=Lax` cookie. The database stores only
+the SHA-256 of each token, so a dump of `sessions` cannot be replayed. The same is true of emailed
+verification and reset tokens, which are single-use and consumed in one `UPDATE … RETURNING`.
+
+- **Passwords** are argon2id. A login for an unknown address still runs a verify against a throwaway
+  hash, and "wrong password", "no such account" and "Google-only account" share one message.
+- **CSRF** is a signed double-submit token: `GET /api/v1/auth/me` returns it, and every
+  state-changing request must echo it in `x-csrf-token`. The signature stops a sibling subdomain
+  from planting a matching pair.
+- **Admin is earned, not claimed.** An address in `ADMIN_EMAILS` gets the role when it is verified,
+  not at signup.
+- **Google sign-in** links to an existing account by verified email. If that account was registered
+  with a password but never verified, its password and sessions are discarded on link, so squatting
+  on someone's address does not survive them signing in with Google.
+- **Guests** get a signed id cookie the first time they do something that needs one, never on a
+  plain page view.
+
 ## Design system
 
 Tokens live in `packages/config`: `tailwind/theme.css` is the source of truth for the running UI,
@@ -231,7 +393,8 @@ with no JavaScript and no flash of the wrong theme; the manual toggle only has t
 
 ## Running it
 
-Prerequisites: Node >= 20.11, pnpm, Docker Desktop running.
+Prerequisites: Node 22 (see `.nvmrc`; Node 24.15.0 on Windows is unreliable, see
+[Known limitations](#known-limitations)), pnpm, Docker Desktop running.
 
 ```bash
 pnpm install
@@ -287,22 +450,46 @@ printed to the API log.
 ```bash
 pnpm typecheck
 pnpm lint
-pnpm test:unit          # template parser, scoring, palette contrast, env, app wiring
-pnpm test:integration   # real Postgres: schema invariants and privacy.spec.ts
-pnpm test:e2e           # Playwright                               (phase 9)
+pnpm test:unit          # template parser, scoring, palette contrast, env, OpenAPI coverage
+pnpm test:integration   # real Postgres: schema invariants, the API over HTTP, privacy
+pnpm test:e2e           # Playwright: the production build in a real browser
 ```
 
 Integration tests need the Docker Postgres running. They create and migrate a sibling database per
 package (`shelf_test_db`, `shelf_test_api`) so a run never touches your development data, and so
 turbo can run both suites in parallel; within a package `fileParallelism: false` keeps files from
-truncating each other.
+truncating each other. On Windows, use Node 22 for these and for the end-to-end suite (see
+[Known limitations](#known-limitations)).
 
-`privacy.spec.ts` is the suite to watch. It asserts, for every surface that can return a prompt and
-for every actor who is not the owner, that a private prompt cannot be reached: direct fetch, all four
-public sort orders, search by title, body and tag, tag filtering, version history, a single version,
-the collection it belongs to, the owned-prompt list, shelf search, and the fork list. The HTTP cases
-are `it.todo` entries that land with the endpoints, so the remaining gap shows up in test output
-rather than only in the brief.
+**The privacy rule is asserted at three levels**, because each can fail independently:
+
+- `apps/api/src/privacy.spec.ts`, at the repository: for every function that can return a prompt and
+  every actor who is not the owner.
+- `apps/api/src/privacy.http.spec.ts`, over HTTP: the actor now comes from cookies, and the response
+  for a private prompt is compared byte for byte with the response for one that never existed.
+- `e2e/privacy.spec.ts`, in a browser against the production build: the page, its editor, its
+  history, the share image, the Markdown export, search, the command palette, and the sitemap.
+
+**The end-to-end suite is self-contained.** `pnpm test:e2e` starts its own API on port 4100 and a
+production build of the web app on port 3100, against its own database (`shelf_e2e`, recreated and
+seeded on every run). The API runs with `OFFLINE_MODE=true`, so no model, email, or OAuth provider
+is ever contacted, whatever keys are in `.env`. It covers the library, sign-up, the whole life of a
+prompt, guests, test runs, version comparison, the editor tools, privacy, keyboard use, and an axe
+accessibility scan of every kind of page in both colour schemes.
+
+Playwright's own Chromium is used by default (`pnpm exec playwright install chromium`). To use a
+browser already on the machine instead:
+
+```bash
+PLAYWRIGHT_CHANNEL=msedge pnpm test:e2e     # or chrome
+```
+
+### API reference
+
+The running API serves its own reference: Swagger UI at `/api/v1/docs` and the OpenAPI 3.1 document
+at `/api/v1/openapi.json`. Request bodies and query strings are generated from the same Zod schemas
+the routes validate with, and `openapi.test.ts` fails if a route exists without an entry or an entry
+exists without a route.
 
 ### Environment
 
@@ -310,22 +497,74 @@ Every variable is documented with an example in [`.env.example`](.env.example). 
 all of them through a Zod schema at boot and refuses to start in production while the development
 secrets are still in place.
 
+## Deploying
+
+Nothing has been deployed from this repository yet. The API image is verified locally: it builds,
+applies migrations, starts with `NODE_ENV=production`, and serves requests as an unprivileged user.
+`render.yaml` and `apps/web/vercel.json` are written to those platforms' documented formats and have
+not been run against them.
+
+| Piece    | Where         | Configuration                                             |
+| -------- | ------------- | --------------------------------------------------------- |
+| Web      | Vercel        | `apps/web/vercel.json`; set the project root to `apps/web` |
+| API      | Render        | `render.yaml`, which builds `apps/api/Dockerfile`          |
+| Postgres | Neon          | `DATABASE_URL`, with TLS; detected from the host           |
+| Redis    | Upstash       | `REDIS_URL`                                                |
+
+1. **Use sibling subdomains**, for example `shelf.example` and `api.shelf.example`, and set
+   `COOKIE_DOMAIN=.shelf.example`. The session cookie is then sent to both, and stays `SameSite=Lax`
+   because sibling subdomains are same-site. Two unrelated domains will not work.
+2. **API environment.** `render.yaml` lists every variable. `SESSION_SECRET`, `GUEST_SECRET`, and
+   `CRON_SECRET` are generated; the API refuses to start in production if they still hold their
+   development values. `CORS_ALLOWED_ORIGINS` must be the web origin exactly.
+3. **Web environment**, on Vercel: `PUBLIC_API_URL`, `PUBLIC_WEB_URL`, and `TURNSTILE_SITE_KEY`.
+   They are read at build time, so changing one needs a redeploy.
+4. **Migrations** run when the API container starts (`node dist/migrate.js`), before the server
+   listens. They are forward-only, so two instances starting together is safe.
+5. **Trending.** The API recomputes scores in-process every 15 minutes. On a host that sleeps, the
+   cron service in `render.yaml` calls `POST /api/v1/cron/trending` on the same schedule, which
+   also wakes the API.
+6. **Google sign-in.** Register `https://api.<domain>/api/v1/auth/oauth/google/callback` as the
+   redirect URI.
+
+The image can be built and run locally:
+
+```bash
+docker build -f apps/api/Dockerfile -t shelf-api .
+```
+
+See [SECURITY.md](SECURITY.md) for what is defended, where, and how each defence is tested.
+
 ## Roadmap
 
 | Phase | Scope                                                                 | Status |
 | ----- | --------------------------------------------------------------------- | ------ |
 | 1     | Monorepo, configs, docker-compose, CI, template parser                | done   |
 | 2     | Drizzle schema, migrations, seed, repository layer, `privacy.spec.ts`  | done   |
-| 3     | Auth: email/password, Google, sessions, CSRF, verification, reset      | next   |
-| 4     | Prompts CRUD, versions, diff, restore, fork, votes, reports, credits   |        |
-| 5     | Search, trending, public library pages with SSR and OG images          |        |
-| 6     | Signed-in shelf UI: sidebar, collections, editor, variables, history   |        |
-| 7     | LLM provider layer, test run streaming, compare, tighten, suggestions  |        |
-| 8     | Command palette, shortcuts, import/export, dark mode toggle, admin     |        |
-| 9     | Full test pass, accessibility audit, security checklist, deploy config |        |
+| 3     | Auth: email/password, Google, sessions, CSRF, verification, reset      | done   |
+| 4     | Prompts CRUD, versions, diff, restore, fork, votes, reports, credits   | done   |
+| 5     | Search, trending, public library pages with SSR and OG images          | done   |
+| 6     | Signed-in shelf UI: sidebar, collections, editor, variables, history   | done   |
+| 7     | LLM provider layer, test run streaming, compare, tighten, suggestions  | done   |
+| 8     | Command palette, shortcuts, import/export, dark mode toggle, admin     | done   |
+| 9     | Full test pass, accessibility audit, security checklist, deploy config | done   |
 
 ## Known limitations
 
+- **Use Node 22 on Windows, not Node 24.15.0.** On Node 24.15.0 on Windows, a Node process that is
+  both an HTTP server and an HTTP client intermittently exits with `0xC0000409` and no output. It is
+  a runtime fault, not a bug in this code, and it showed up in three places:
+  - a 15-line script with bare Express and supertest: 5 crashes in 16 runs;
+  - the API integration suite, which vitest reports as "Worker exited unexpectedly": roughly a
+    third to a half of runs;
+  - the Next.js production server during the end-to-end suite, which stopped answering part-way
+    through the one full run attempted on Node 24.
+
+  On Node 22.23 the same script crashed 0 times in 16, the API suite passed 7 runs in 7, and the
+  end-to-end suite ran to completion with both servers up. The built API on its own, under 5,400
+  requests from a separate client process on Node 24, did not crash, so a server that makes no
+  outbound HTTP calls appears unaffected; the web app, which calls the API while rendering, is not
+  in that category. `.nvmrc` pins Node 22 and CI runs it. The cause inside Node was not identified.
 - **Guest credits are a speed bump, not security.** Identity is a signed cookie plus an HMAC of the
   client IP. Clearing cookies from a new address resets the allowance. Turnstile raises the cost,
   the global daily LLM cap bounds the damage, and neither makes this airtight. Anything that must

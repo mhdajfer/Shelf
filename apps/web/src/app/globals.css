@@ -3,3 +3,71 @@
 @import '@shelf/config/tailwind/theme.css';
 
 @source '../../src';
+
+@layer components {
+  /* A malformed placeholder in the editor. Colour is not the only signal: the
+     underline is wavy and the message is in the list under the editor. */
+  .shelf-diagnostic {
+    text-decoration: underline wavy var(--color-warning);
+    text-decoration-skip-ink: none;
+    text-underline-offset: 3px;
+  }
+
+  /* Model output rendered from Markdown. Deliberately small: it sits inside a
+     panel, not on a page of its own. */
+  .shelf-prose {
+    font-size: 0.875rem;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+  .shelf-prose > * + * {
+    margin-top: 0.75em;
+  }
+  .shelf-prose :is(h1, h2, h3, h4) {
+    font-size: 1em;
+    font-weight: 600;
+  }
+  .shelf-prose :is(ul, ol) {
+    padding-left: 1.4em;
+  }
+  .shelf-prose ul {
+    list-style: disc;
+  }
+  .shelf-prose ol {
+    list-style: decimal;
+  }
+  .shelf-prose li + li {
+    margin-top: 0.25em;
+  }
+  .shelf-prose a {
+    color: var(--color-accent);
+    text-decoration: underline;
+  }
+  .shelf-prose :is(code, pre) {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+  .shelf-prose pre {
+    overflow-x: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 0.6em 0.8em;
+  }
+  .shelf-prose blockquote {
+    border-left: 2px solid var(--color-border-strong);
+    padding-left: 0.8em;
+    color: var(--color-text-muted);
+  }
+  .shelf-prose table {
+    border-collapse: collapse;
+  }
+  .shelf-prose :is(th, td) {
+    border: 1px solid var(--color-border);
+    padding: 0.2em 0.5em;
+  }
+
+  /* The editor's content element is focusable; its container draws the ring. */
+  .cm-editor .cm-content:focus-visible {
+    outline: none;
+  }
+}

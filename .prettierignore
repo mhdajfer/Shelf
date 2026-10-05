@@ -1,7 +1,11 @@
 node_modules
 dist
 .next
+.next-e2e
+playwright-report
+test-results
 coverage
 .turbo
 pnpm-lock.yaml
 *.md
+next-env.d.ts
