@@ -2,6 +2,26 @@
 
 A library for prompts you reuse. Write them, version them, test them, and keep the ones that work.
 
+**Live at [shelf.mhdajfer.in](https://shelf.mhdajfer.in/)** · [API reference](https://shelf.mhdajfer.in/api/v1/docs)
+· [Security](SECURITY.md)
+
+**Highlights**
+
+- **Prompts as code.** `{{variables}}` with defaults, immutable version history, line diffs,
+  restore, and forks with lineage.
+- **Streamed test runs.** Run any version against Gemini over server-sent events, and compare two
+  versions side by side on the same inputs.
+- **Invariants in the database.** Immutable versions, an append-only credit ledger, and race-safe
+  credit spending under Postgres advisory locks, each asserted against a real Postgres.
+- **Privacy by construction.** One function decides who can read a prompt, routes cannot reach the
+  tables, and an unreadable prompt is indistinguishable from a missing one. Tested at the repository,
+  over HTTP, and in the browser.
+- **Tested end to end.** Unit, integration, and Playwright suites with axe accessibility scans in
+  both colour schemes, all in CI.
+
+**Stack:** TypeScript, Turborepo, Next.js (App Router, RSC), Express 5, PostgreSQL with Drizzle,
+Redis, Tailwind CSS v4, CodeMirror 6, Vitest, Playwright, Docker, Caddy.
+
 Two faces, one codebase:
 
 - **The public shelf** — a browsable, searchable library anyone can read, copy, upvote, and fork.
@@ -9,8 +29,9 @@ Two faces, one codebase:
 - **Your shelf** — for signed-in users. Private by default, with collections, version history,
   variables, test runs, and version comparison.
 
-> Build status: all nine phases of the [Roadmap](#roadmap) are complete. It has not been deployed;
-> see [Deploying](#deploying) and [Known limitations](#known-limitations).
+> Status: all nine phases of the [Roadmap](#roadmap) are complete, and the app is deployed at
+> [shelf.mhdajfer.in](https://shelf.mhdajfer.in/). See [Deploying](#deploying) and
+> [Known limitations](#known-limitations).
 
 ## Why
 
@@ -27,27 +48,30 @@ flowchart LR
     UI["Next.js App Router<br/>RSC + TanStack Query"]
   end
 
-  subgraph "Vercel"
+  subgraph "One server, Docker Compose"
+    CADDY["Caddy<br/>TLS, routing"]
     WEB["@shelf/web<br/>SSR, OG images, sitemap"]
-  end
-
-  subgraph "Render / Railway"
     API["@shelf/api<br/>Express, REST + SSE"]
+    PG[("Postgres")]
+    RD[("Redis")]
   end
 
-  PG[("Postgres<br/>Neon")]
-  RD[("Redis<br/>Upstash")]
   GEM["Gemini API"]
   MAIL["Resend"]
 
-  UI -->|"document requests"| WEB
-  UI -->|"/api/v1/*, credentialed"| API
+  UI -->|"https"| CADDY
+  CADDY -->|"/api/*"| API
+  CADDY -->|"everything else"| WEB
   WEB -->|"server-side reads"| API
   API --> PG
   API --> RD
   API --> GEM
   API --> MAIL
 ```
+
+That is the live deployment: one hostname, with Caddy sending `/api/*` to the API and everything
+else to the web app. The two apps can also be deployed apart, on two sibling subdomains (for
+example the web app on Vercel and the API on Render); see [Deploying](#deploying).
 
 ```
 shelf/
@@ -58,7 +82,8 @@ shelf/
     shared/       template parser, scoring, DTO schemas, constants
     db/           Drizzle schema, migrations, seed, repositories, test harness
     config/       tsconfig / ESLint / Prettier / Tailwind theme / brand
-  docker-compose.yml
+  deploy/         production Docker Compose stack and Caddyfile
+  docker-compose.yml   local Postgres and Redis
   .github/workflows/ci.yml
 ```
 
@@ -79,7 +104,10 @@ secret-isolation requirements.
 
 ### Cookies across two origins
 
-In production the browser calls the API origin directly (`api.<domain>`) rather than through a
+The live deployment serves both apps on one hostname, so the session cookie is host-only and none of
+this section applies to it. It matters when the apps are deployed apart.
+
+There the browser calls the API origin directly (`api.<domain>`) rather than through a
 Next.js rewrite. Rewriting `/api/*` through the web host would be simpler, but it would reintroduce
 the platform proxy response timeout on exactly the SSE streams the separate service exists to
 support. Instead:
@@ -499,10 +527,53 @@ secrets are still in place.
 
 ## Deploying
 
-Nothing has been deployed from this repository yet. The API image is verified locally: it builds,
-applies migrations, starts with `NODE_ENV=production`, and serves requests as an unprivileged user.
-`render.yaml` and `apps/web/vercel.json` are written to those platforms' documented formats and have
-not been run against them.
+The live site, [shelf.mhdajfer.in](https://shelf.mhdajfer.in/), runs on a single Linux server with
+Docker Compose, from the files in [`deploy/`](deploy/). It is the setup recommended here: one
+hostname, no cross-origin cookies, and the long-lived SSE streams never pass through a serverless
+proxy.
+
+### One server with Docker Compose
+
+| Service    | What it does                                                                   |
+| ---------- | ------------------------------------------------------------------------------ |
+| `caddy`    | The only service with public ports. Gets and renews the TLS certificate, sends `/api/*` to the API and everything else to the web app |
+| `web`      | `apps/web/Dockerfile`, a production Next.js build                              |
+| `api`      | `apps/api/Dockerfile`; applies migrations, then listens                        |
+| `postgres` | Postgres 17, data in a named volume                                            |
+| `redis`    | Redis 7 with append-only persistence                                           |
+
+What the server needs: Docker with the Compose plugin, a DNS `A` record for the hostname pointing
+at it, and ports 80 and 443 open (Caddy needs both for the certificate). 2 GB of RAM is enough if
+some swap is configured, since building the web image peaks at about 1.4 GB.
+
+```bash
+# on the server, with the repository checked out
+cd deploy
+cp .env.example .env          # set SITE_HOST and generate the four secrets
+docker compose up -d --build
+docker compose ps             # api, web, postgres, and redis should report healthy
+```
+
+- **One hostname, one origin.** The browser calls `/api` on the same host, so the session cookie is
+  host-only and `COOKIE_DOMAIN` stays unset. CORS is pinned to `https://$SITE_HOST`.
+- **The web image is tied to the hostname.** `PUBLIC_WEB_URL` and `PUBLIC_API_URL` are compiled into
+  the bundle, the CSP, and the sitemap, so changing `SITE_HOST` means rebuilding `web`, not just
+  restarting it. The API reads its settings at start, so a changed key needs only
+  `docker compose up -d api`.
+- **Server components skip the proxy.** The web container reaches the API at `http://api:4000` over
+  the Compose network (`API_INTERNAL_URL`), forwarding the visitor's cookies.
+- **Optional features** turn on when their keys are set in `deploy/.env`: Gemini for real test runs,
+  Resend for email, Google sign-in, Turnstile, and `ADMIN_EMAILS`. Leave a key commented out, not
+  empty, to keep its feature off.
+- **Updating.** Bring the new source onto the server and run `docker compose up -d --build`.
+  Migrations run when the API container starts, before it listens, and are forward-only. Data lives
+  in named volumes and survives a rebuild.
+- **The seed script refuses to run in production.** A fresh deployment starts with an empty library.
+
+### Two origins: Vercel and Render
+
+The apps can also be deployed apart. This configuration is written to those platforms' documented
+formats but has not been run against them; the live site uses the setup above.
 
 | Piece    | Where         | Configuration                                             |
 | -------- | ------------- | --------------------------------------------------------- |
@@ -527,10 +598,11 @@ not been run against them.
 6. **Google sign-in.** Register `https://api.<domain>/api/v1/auth/oauth/google/callback` as the
    redirect URI.
 
-The image can be built and run locally:
+Either image can be built locally from the repository root:
 
 ```bash
 docker build -f apps/api/Dockerfile -t shelf-api .
+docker build -f apps/web/Dockerfile -t shelf-web   --build-arg PUBLIC_WEB_URL=https://shelf.example --build-arg PUBLIC_API_URL=https://shelf.example .
 ```
 
 See [SECURITY.md](SECURITY.md) for what is defended, where, and how each defence is tested.
@@ -569,8 +641,10 @@ See [SECURITY.md](SECURITY.md) for what is defended, where, and how each defence
   client IP. Clearing cookies from a new address resets the allowance. Turnstile raises the cost,
   the global daily LLM cap bounds the damage, and neither makes this airtight. Anything that must
   not be abused requires an account.
-- **Free tiers sleep.** Render and Neon free instances idle out, so the first request after a quiet
-  period can take several seconds.
+- **The live site is one server.** Postgres, Redis, and both apps share a single host, so it is a
+  single point of failure, and deploys are a rebuild on that host with a short restart.
+- **Free tiers sleep.** On the two-origin setup, Render and Neon free instances idle out, so the
+  first request after a quiet period can take several seconds.
 - **Public listings paginate by offset, not by cursor.** Keyset pagination over `trending_score` is
   awkward when a cron job rewrites the score every 15 minutes, and at this library's size the deep
   pages offset would hurt do not exist. A prompt can shift between pages if the score is recomputed
