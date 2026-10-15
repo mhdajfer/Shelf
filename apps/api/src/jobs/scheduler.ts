@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 
-import { promptRepo, sessionRepo, type Database } from '@shelf/db';
+import { accessRepo, promptRepo, sessionRepo, type Database } from '@shelf/db';
 
 import { logger } from '../observability/logger.js';
 
@@ -23,6 +23,9 @@ export function startScheduler(db: Database): () => void {
   const cleanup = cron.schedule('17 * * * *', () => {
     sessionRepo.removeExpired(db).catch((error: unknown) => {
       logger.error({ err: error }, 'session cleanup failed');
+    });
+    accessRepo.removeExpired(db).catch((error: unknown) => {
+      logger.error({ err: error }, 'access token cleanup failed');
     });
   });
 

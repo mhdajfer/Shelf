@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 
 import {
+  accessRepo,
   sessionRepo,
   uniqueViolation,
   USER_EMAIL_CONSTRAINT,
@@ -249,8 +250,10 @@ export function createAuthRouter(deps: AuthDeps): Router {
     }
 
     await userRepo.setPasswordHash(db, user.id, await hashPassword(input.password));
-    // Whoever knew the old password is signed out everywhere.
+    // Whoever knew the old password is signed out everywhere, and loses any
+    // access token they could have created with it.
     await sessionRepo.removeAllForUser(db, user.id);
+    await accessRepo.revokeAllForUser(db, user.id);
     // Following an emailed link proves control of the address.
     if (user.emailVerifiedAt === null) {
       await userRepo.markEmailVerified(db, user.id, roleFor(user.email));
@@ -402,9 +405,11 @@ export function createAuthRouter(deps: AuthDeps): Router {
       if (existing !== null) {
         if (existing.emailVerifiedAt === null) {
           // Someone registered this address without proving they own it. The
-          // Google sign-in is the proof, so that password and its sessions go.
+          // Google sign-in is the proof, so that password, its sessions, and
+          // any access token made with them go.
           await userRepo.setPasswordHash(db, existing.id, null);
           await sessionRepo.removeAllForUser(db, existing.id);
+          await accessRepo.revokeAllForUser(db, existing.id);
           await userRepo.markEmailVerified(db, existing.id, roleFor(existing.email));
         }
         user = existing;

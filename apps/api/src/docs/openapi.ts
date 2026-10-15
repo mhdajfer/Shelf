@@ -5,6 +5,7 @@ import {
   changePasswordSchema,
   collectionOrderSchema,
   collectionSchema,
+  createAccessTokenSchema,
   createPromptSchema,
   deleteAccountSchema,
   forgotPasswordSchema,
@@ -105,6 +106,11 @@ export function buildOpenApiDocument(serverUrl: string): ReturnType<typeof creat
         { name: 'Shelf', description: "The signed-in user's own prompts and collections." },
         { name: 'Runs', description: 'Model-backed test runs and editor tools.' },
         { name: 'Auth', description: 'Accounts and sessions.' },
+        {
+          name: 'Access',
+          description:
+            'Personal access tokens for the MCP endpoint at `/mcp`. Managed with the browser session; a token cannot manage tokens.',
+        },
         { name: 'Admin', description: 'Moderation. 404 for anyone who is not an admin.' },
         { name: 'System', description: 'Health and scheduled work.' },
       ],
@@ -540,6 +546,33 @@ export function buildOpenApiDocument(serverUrl: string): ReturnType<typeof creat
             tags: ['Auth'],
             summary: 'Finish Google sign-in',
             responses: { '302': { description: 'Redirects to the web app.' } },
+          },
+        },
+
+        '/access/tokens': {
+          get: {
+            tags: ['Access'],
+            summary: 'List your personal access tokens',
+            description: 'Unexpired tokens, newest first. The secret is never included.',
+            responses: { ...ok('The tokens.'), ...failures(401) },
+          },
+          post: {
+            tags: ['Access'],
+            summary: 'Create a personal access token',
+            description: `The response is the only time the secret is returned. ${WRITE}`,
+            requestBody: body(createAccessTokenSchema),
+            responses: { ...ok('Created.', '201'), ...failures(400, 401, 409, 429) },
+          },
+        },
+        '/access/tokens/{id}': {
+          delete: {
+            tags: ['Access'],
+            summary: 'Revoke a personal access token',
+            description: `Takes effect on the token's next request. ${WRITE}`,
+            requestParams: {
+              path: z.object({ id: z.uuid().meta({ description: 'A token id.' }) }),
+            },
+            responses: { '204': { description: 'Revoked.' }, ...failures(401, 404, 429) },
           },
         },
 

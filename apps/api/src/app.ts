@@ -15,6 +15,7 @@ import type { EmailTransport } from './email/transport.js';
 import { AppError, errorHandler, notFoundHandler } from './http/errors.js';
 import type { LlmProvider } from './llm/provider.js';
 import { httpLogger } from './observability/logger.js';
+import { createAccessRouter } from './routes/access.js';
 import { createAdminRouter } from './routes/admin.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createCollectionRouter } from './routes/collections.js';
@@ -109,6 +110,7 @@ export function createApp(deps: AppDeps): Express {
   app.use(API_PREFIX, createLibraryRouter(deps));
   app.use(API_PREFIX, createRunRouter(deps));
   app.use(API_PREFIX, createTransferRouter(deps));
+  app.use(API_PREFIX, createAccessRouter(deps));
   app.use(API_PREFIX, createAdminRouter(deps));
 
   app.use(notFoundHandler);
