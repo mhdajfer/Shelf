@@ -451,7 +451,7 @@ with no JavaScript and no flash of the wrong theme; the manual toggle only has t
 
 ## Running it
 
-Prerequisites: Node 22 (see `.nvmrc`; Node 24.15.0 on Windows is unreliable, see
+Prerequisites: Node 24 LTS (see `.nvmrc`; avoid 24.15.0 on Windows, see
 [Known limitations](#known-limitations)), pnpm, Docker Desktop running.
 
 ```bash
@@ -516,7 +516,7 @@ pnpm test:e2e           # Playwright: the production build in a real browser
 Integration tests need the Docker Postgres running. They create and migrate a sibling database per
 package (`shelf_test_db`, `shelf_test_api`) so a run never touches your development data, and so
 turbo can run both suites in parallel; within a package `fileParallelism: false` keeps files from
-truncating each other. On Windows, use Node 22 for these and for the end-to-end suite (see
+truncating each other. On Windows, do not run these or the end-to-end suite on Node 24.15.0 (see
 [Known limitations](#known-limitations)).
 
 **The privacy rule is asserted at three levels**, because each can fail independently:
@@ -655,20 +655,20 @@ See [SECURITY.md](SECURITY.md) for what is defended, where, and how each defence
 
 ## Known limitations
 
-- **Use Node 22 on Windows, not Node 24.15.0.** On Node 24.15.0 on Windows, a Node process that is
-  both an HTTP server and an HTTP client intermittently exits with `0xC0000409` and no output. It is
-  a runtime fault, not a bug in this code, and it showed up in three places:
+- **Avoid Node 24.15.0 on Windows.** On that release, a Node process that is both an HTTP server
+  and an HTTP client intermittently exits with `0xC0000409` and no output. It is a runtime fault,
+  not a bug in this code, and it showed up in three places:
   - a 15-line script with bare Express and supertest: 5 crashes in 16 runs;
   - the API integration suite, which vitest reports as "Worker exited unexpectedly": roughly a
     third to a half of runs;
   - the Next.js production server during the end-to-end suite, which stopped answering part-way
-    through the one full run attempted on Node 24.
+    through the one full run attempted.
 
-  On Node 22.23 the same script crashed 0 times in 16, the API suite passed 7 runs in 7, and the
-  end-to-end suite ran to completion with both servers up. The built API on its own, under 5,400
-  requests from a separate client process on Node 24, did not crash, so a server that makes no
-  outbound HTTP calls appears unaffected; the web app, which calls the API while rendering, is not
-  in that category. `.nvmrc` pins Node 22 and CI runs it. The cause inside Node was not identified.
+  On Node 24.20.0 the API suite passed 5 runs in 5 and the end-to-end suite ran to completion, as
+  they had on Node 22.23. The cause inside Node was not identified, and a later rerun of a similar
+  Express and supertest script crashed on neither release, so there is no small reproduction to
+  check a new release against; the API suite is the check. `.nvmrc`, CI, and the Docker images
+  all use Node 24.
 - **Guest credits are a speed bump, not security.** Identity is a signed cookie plus an HMAC of the
   client IP. Clearing cookies from a new address resets the allowance. Turnstile raises the cost,
   the global daily LLM cap bounds the damage, and neither makes this airtight. Anything that must

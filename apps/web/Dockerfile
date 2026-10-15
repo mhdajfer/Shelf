@@ -6,7 +6,7 @@
 # The root .dockerignore leaves apps/web out for the API image, so this file has
 # its own beside it: Dockerfile.dockerignore.
 
-FROM node:22-slim AS base
+FROM node:24-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -42,7 +42,7 @@ RUN pnpm --filter @shelf/web... build
 
 # The whole workspace, not a pruned copy: `next start` reads next.config.ts, and
 # loading a TypeScript config needs the dev dependencies that compiled it.
-FROM node:22-slim AS runtime
+FROM node:24-slim AS runtime
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 

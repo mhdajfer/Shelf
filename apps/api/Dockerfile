@@ -1,7 +1,7 @@
 # Build from the repository root, so the workspace packages are in the context:
 #   docker build -f apps/api/Dockerfile -t shelf-api .
 
-FROM node:22-slim AS base
+FROM node:24-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
@@ -25,7 +25,7 @@ RUN pnpm --filter @shelf/api... build
 # The API with production dependencies only, in a self-contained directory.
 RUN pnpm --filter @shelf/api deploy --prod --legacy /out
 
-FROM node:22-slim AS runtime
+FROM node:24-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
