@@ -14,6 +14,7 @@ import { buildOpenApiDocument } from './docs/openapi.js';
 import type { EmailTransport } from './email/transport.js';
 import { AppError, errorHandler, notFoundHandler } from './http/errors.js';
 import type { LlmProvider } from './llm/provider.js';
+import { createMcpRouter } from './mcp/router.js';
 import { httpLogger } from './observability/logger.js';
 import { createAccessRouter } from './routes/access.js';
 import { createAdminRouter } from './routes/admin.js';
@@ -98,6 +99,10 @@ export function createApp(deps: AppDeps): Express {
     res.set('Cache-Control', 'no-store');
     next();
   });
+
+  // Bearer tokens only, so it sits before the cookie identity and the CSRF
+  // check: neither applies to a credential a browser cannot send cross-site.
+  app.use(createMcpRouter(deps));
 
   // Everything below knows who is asking and refuses forged writes.
   app.use(identity(deps.db));

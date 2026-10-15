@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@google/genai": "^2.25.0",
+    "@modelcontextprotocol/node": "2.1.1",
+    "@modelcontextprotocol/server": "2.3.1",
     "@node-rs/argon2": "^2.2.1",
     "@shelf/db": "workspace:*",
     "@shelf/shared": "workspace:*",
@@ -39,6 +41,7 @@
     "zod-openapi": "^6.0.2"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.3.1",
     "@shelf/config": "workspace:*",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",

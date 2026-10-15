@@ -1,58 +1,22 @@
 import { Router } from 'express';
 
+import { collectionRepo, promptRepo, uniqueViolation, type Database } from '@shelf/db';
 import {
-  collectionRepo,
-  promptRepo,
-  uniqueViolation,
-  type Database,
-  type PromptSummary,
-} from '@shelf/db';
-import {
-  CATEGORY_LABELS,
   EXPORT_FORMAT,
   EXPORT_VERSION,
   extractVariables,
   importEnvelopeSchema,
   importPromptSchema,
   LIMITS,
-  type Category,
   type ImportResultDto,
   type ShelfExport,
 } from '@shelf/shared';
 
 import { requireUser } from '../auth/identity.js';
 import { uuidParam } from '../http/dto.js';
+import { toMarkdown } from '../http/markdown.js';
 import { notFound } from '../http/errors.js';
 import type { RateLimits } from '../security/rateLimit.js';
-
-/** A fence longer than any run of backticks in the body, so the body cannot close it. */
-function fenceFor(body: string): string {
-  const longest = Math.max(0, ...(body.match(/`+/g) ?? []).map((run) => run.length));
-  return '`'.repeat(Math.max(3, longest + 1));
-}
-
-function toMarkdown(prompt: PromptSummary): string {
-  const fence = fenceFor(prompt.body);
-  const lines = [
-    `# ${prompt.title}`,
-    '',
-    ...(prompt.description === null ? [] : [prompt.description, '']),
-    `- Category: ${CATEGORY_LABELS[prompt.category as Category] ?? prompt.category}`,
-    ...(prompt.tags.length === 0 ? [] : [`- Tags: ${prompt.tags.join(', ')}`]),
-    ...(prompt.modelHint === null ? [] : [`- Written for: ${prompt.modelHint}`]),
-    `- Author: ${prompt.author.handle}`,
-    `- Version: ${String(prompt.versionNumber)}`,
-    ...(prompt.variables.length === 0
-      ? []
-      : [`- Variables: ${prompt.variables.map((variable) => variable.name).join(', ')}`]),
-    '',
-    `${fence}text`,
-    prompt.body,
-    fence,
-    '',
-  ];
-  return lines.join('\n');
-}
 
 const slug = (title: string): string =>
   title

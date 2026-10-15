@@ -21,6 +21,8 @@ const BUCKETS = {
   // Generous: server-rendered searches all arrive from the web host's address.
   search: { points: 300, duration: 60 },
   model: { points: 20, duration: 60 },
+  // Per access grant. A model working through a task makes calls in bursts.
+  mcp: { points: 120, duration: 60 },
 } as const;
 
 export type Bucket = keyof typeof BUCKETS;
