@@ -6,6 +6,13 @@
 		reverse_proxy api:4000
 	}
 
+	# The MCP endpoint for Claude Code and other clients. It answers with an event
+	# stream when a call reports progress, which Caddy also passes through as it
+	# arrives.
+	handle /mcp {
+		reverse_proxy api:4000
+	}
+
 	handle {
 		encode zstd gzip
 		reverse_proxy web:3000
