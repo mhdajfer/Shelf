@@ -46,6 +46,23 @@ Please do not open a public issue for it.
 | CORS allows listed origins only, with credentials | `apps/api/src/app.ts` | **tested**: an unlisted origin gets 403 |
 | The cron endpoint is the only CSRF exemption, and uses a bearer secret | Compared in constant time | **tested** |
 
+## MCP and access tokens
+
+| Defence | Where | Checked by |
+| --- | --- | --- |
+| `/mcp` accepts bearer tokens only and never reads the session cookie, which is what makes it safe outside the CSRF check | Mounted before `identity` and `csrfProtection` in `apps/api/src/app.ts` | **tested**: a signed-in browser's cookie alone gets 401 |
+| Browser origins not on the allowlist are refused | The same `cors` check as the REST API | **tested**: an unlisted `Origin` gets 403 |
+| Tokens are stored as SHA-256 hashes and shown once | `access_tokens.token_hash`; the secret is only in the create response | **tested**: the list never contains it |
+| An unknown, expired, or revoked token is refused at once | Checked against the database on every request; no JWTs | **tested** |
+| Another user's private prompt is invisible, and answers exactly like one that never existed | Own prompts through owner-keyed queries, public ones as the anonymous actor | **tested**: `mcp.spec.ts`, every tool, prompt, and resource read |
+| A token sees only its prompt set (all, pinned, or one collection) | The set is a predicate in the repository query | **tested**: prompts outside it read as missing; deleting the collection deletes the token |
+| A token never carries admin reach | MCP actors always have the `user` role | **tested**: an admin's token cannot read a hidden prompt |
+| A read-only token cannot write | Write tools are not registered without `prompts:write`, and carry a scope challenge besides | **tested** |
+| Nothing written over MCP is public, and nothing can be deleted | `create_prompt` always saves private; strict tool schemas refuse unknown keys such as `visibility` | **tested** |
+| Tool failures do not leak internals | Unexpected errors become a generic message and go to the log | review |
+| Tokens die with the account's credentials | Password reset and a Google takeover of an unverified account revoke them all | **tested** for reset |
+| Responses are never stored | `Cache-Control: no-store, no-transform`, replacing the SDK's own header | **tested** |
+
 ## Injection and untrusted content
 
 | Defence | Where | Checked by |
@@ -63,7 +80,7 @@ Please do not open a public issue for it.
 
 | Defence | Where | Checked by |
 | --- | --- | --- |
-| Rate limits on sign-in, signup, reset, writes, votes, reports, search, model calls | Redis-backed, with an in-memory insurance limiter | **tested** for login lockout |
+| Rate limits on sign-in, signup, reset, writes, votes, reports, search, model calls, and MCP requests per token | Redis-backed, with an in-memory insurance limiter | **tested** for login lockout |
 | Credits cannot be overspent by racing requests | Check-and-debit under a Postgres advisory lock | **tested**: eight concurrent spends against a limit of three |
 | The credit ledger cannot be edited | Triggers reject `UPDATE` and `DELETE` | **tested**: `schema.spec.ts` |
 | A failed model call is refunded exactly once | Compensating row; `refund` is idempotent | **tested** |

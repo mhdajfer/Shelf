@@ -285,6 +285,36 @@ whichever count is higher. Signed-in users are not metered on creation, only on 
 **`updated_at` means "the author changed this".** Migration `0002` narrows the trigger to authored
 columns, so an upvote, a pin, or a trending recompute no longer reshuffles the owner's shelf.
 
+## Using prompts from Claude Code and other MCP clients
+
+`/mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server: the second consumer
+the separate API was built for. The design, including what is still to come (OAuth sign-in for
+clients), is in [docs/design/0001-mcp-server.md](docs/design/0001-mcp-server.md).
+
+Create a token in **Settings → Access**, then:
+
+```bash
+claude mcp add --transport http --scope user shelf https://shelf.mhdajfer.in/mcp \
+  --header "Authorization: Bearer shelf_pat_…"
+```
+
+- Every prompt becomes a slash command, `/mcp__shelf__<command-name>`, with its `{{variables}}`
+  as arguments. A command name comes from the title when the prompt is created and stays put when
+  the title changes; the owner can rename it in the editor.
+- Tools let the client's model search the shelf and the public library, read and render prompts,
+  and, with a token that allows it, save new prompts and versions. Nothing saved this way is
+  public, and nothing can be deleted.
+- A token can be limited to pinned prompts or one collection, expires after 30, 90, or 365 days,
+  and is revoked from Settings, by a password reset, or by deleting its collection.
+- The endpoint serves protocol revision 2026-07-28 and answers clients on the 2025 handshake from
+  the same definitions. It keeps no sessions: each request builds a server for its token.
+
+| Method and path                  | What it does                                     |
+| -------------------------------- | ------------------------------------------------ |
+| `POST /mcp`                      | The MCP endpoint. Bearer token only, no cookies  |
+| `GET` / `POST /access/tokens`    | List tokens, or create one (the secret, once)    |
+| `DELETE /access/tokens/:id`      | Revoke a token                                   |
+
 ## Model calls
 
 Everything model-backed goes through one interface, `LlmProvider`, with two implementations:
@@ -620,6 +650,8 @@ See [SECURITY.md](SECURITY.md) for what is defended, where, and how each defence
 | 7     | LLM provider layer, test run streaming, compare, tighten, suggestions  | done   |
 | 8     | Command palette, shortcuts, import/export, dark mode toggle, admin     | done   |
 | 9     | Full test pass, accessibility audit, security checklist, deploy config | done   |
+| 10    | MCP server with personal access tokens ([design](docs/design/0001-mcp-server.md), phases 0–2) | done |
+| 11    | OAuth 2.1 for MCP clients, and per-client setup docs (design phases 3–4) | next   |
 
 ## Known limitations
 

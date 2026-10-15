@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Accepted. Phases 0–2 in progress |
+| Status | Accepted. Phases 0–2 implemented; phases 3 and 4 pending |
 | Author | Muhammed Ajfer |
 | Created | 2026-10-14 |
 | Revised | 2026-10-15: retargeted at protocol revision 2026-07-28 and SDK v2; see [Revision notes](#revision-notes) |
@@ -207,7 +207,8 @@ without changing its interface.
   `registerTool` with Zod input and output schemas.
 - **Caching:** list results on 2026-07-28 carry `ttlMs` and `cacheScope`. Every list here is per
   user, so `cacheScope` is `private`; `ttlMs` is 0 because there are no change notifications to
-  invalidate a longer lifetime.
+  invalidate a longer lifetime. At the HTTP level every response is `Cache-Control: no-store,
+  no-transform`; the SDK's own `no-cache` on event streams would still let a cache keep a copy.
 - **Validation:** tool input schemas are built from the same field schemas in `@shelf/shared` that
   the REST routes use, as **strict** objects: a key the tool does not define (`visibility`,
   `turnstileToken`, `pinned`) is an error, not silently dropped.
@@ -242,9 +243,10 @@ stable, so they are **stored**, not derived on every request:
   (`"Commit message (conventional)"` becomes `commit-message-conventional`). A title that slugifies
   to nothing (an emoji, a non-Latin script) becomes `prompt`. A collision gets `-2`, `-3`, and so
   on, truncating the base so the suffix still fits in 48 characters.
-- Collisions are resolved by the unique index, not by a check before the insert: the insert runs
-  in a savepoint and retries with the next suffix on a violation, the same pattern signup uses for
-  handles, so two concurrent creates cannot both take one name.
+- Concurrent creates cannot see each other's uncommitted rows, so name assignment for one owner is
+  serialised with a transaction-scoped advisory lock (the pattern credits already use). The unique
+  index stays the final word: the insert runs in a savepoint and retries on a violation, which
+  covers a rename racing a create.
 - **It does not change when the title changes**, so a renamed prompt keeps its command. The owner
   can edit it in the editor; a taken name answers 409.
 - Deleting a prompt frees its name: the unique index covers live prompts only, like the one-fork
@@ -269,7 +271,7 @@ Each entry:
   "description": "Writes a conventional commit message from a diff.",
   "arguments": [
     { "name": "diff", "required": true },
-    { "name": "style", "description": "Default: concise", "required": false }
+    { "name": "style", "description": "Optional. Default: concise", "required": false }
   ]
 }
 ```
@@ -278,6 +280,8 @@ Each entry:
   order matters because Claude Code passes slash-command arguments positionally.
 - A variable with a default is optional and its description shows the default; one without a
   default is required.
+- An argument sent as an empty string counts as not supplied, so the default applies. Clients send
+  one for an argument the user skipped.
 
 **`prompts/get`** renders the current version with `renderTemplate` from `@shelf/shared`, so
 rendering cannot differ from the web preview or a test run. It returns one `user` message with the
@@ -296,7 +300,7 @@ client's argument field is prefilled the way the web's fill-in panel is.
 | `get_prompt` | `prompts:read` | read-only | One prompt by id or command name, with its body, variables, and version (current, or a given number). |
 | `render_prompt` | `prompts:read` | read-only | Renders a prompt with given arguments and returns the text. For clients that use tools but not the prompts primitive. |
 | `list_collections` | `prompts:read` | read-only | The user's collections, with prompt counts. Empty for a grant limited to pinned prompts; only its own collection for a collection grant. |
-| `create_prompt` | `prompts:write` | not read-only, not destructive | Saves a new prompt to the user's shelf. **Always private.** |
+| `create_prompt` | `prompts:write` | not read-only, not destructive | Saves a new prompt to the user's shelf. **Always private.** Kept inside the grant's prompt set (pinned, or added to its collection), so the model can go on to use it. |
 | `update_prompt` | `prompts:write` | not read-only, not destructive, idempotent | Edits an owned prompt in the prompt set. A changed body appends a version, with an optional note, exactly as `PATCH /prompts/:id` does; an unchanged body is a metadata edit. Never changes visibility. |
 
 - Every tool declares an `outputSchema` and returns `structuredContent` plus a text rendering of the
@@ -337,9 +341,12 @@ moderation has hidden.
 | `prompts:read` | `prompts/*`, `resources/*`, `completion/complete`, and the read-only tools |
 | `prompts:write` | `create_prompt`, `update_prompt`. Always granted together with `prompts:read` |
 
-A call to a write tool without `prompts:write` answers HTTP 403 with
-`WWW-Authenticate: Bearer error="insufficient_scope", scope="prompts:read prompts:write"`, through
-the SDK's per-tool `scopeChallenge`, so an OAuth client can ask the user to widen the grant.
+A personal access token without `prompts:write` is not offered the write tools at all: there is no
+way to widen a token, so listing tools it can never call would only mislead the model. Each write
+tool also carries the SDK's per-tool `scopeChallenge`, which answers HTTP 403 with
+`WWW-Authenticate: Bearer error="insufficient_scope", scope="prompts:read prompts:write"`. Phase 3
+lists the write tools to OAuth grants without the scope, so that challenge lets a client ask the
+user to widen the grant.
 
 ### Phase 1: personal access tokens
 
