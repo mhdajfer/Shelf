@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { UsePanel } from '@/components/use-panel';
 import { VoteButton } from '@/components/vote-button';
 import { serverApi, serverApiOrNull } from '@/lib/api-server';
-import { routes } from '@/lib/routes';
+import { mcpCommand, routes } from '@/lib/routes';
 import { formatDate, plural } from '@/lib/utils';
 
 type Params = Promise<{ id: string }>;
@@ -116,6 +116,23 @@ export default async function PromptPage({ params }: { params: Params }) {
               </li>
             ))}
           </ul>
+        )}
+        {prompt.viewer.isOwner && prompt.commandName !== null && (
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text-muted">
+            <span>Use in Claude Code:</span>
+            <code className="font-mono text-[0.8125rem] text-text">
+              {mcpCommand(prompt.commandName)}
+            </code>
+            <CopyButton
+              text={mcpCommand(prompt.commandName)}
+              variant="ghost"
+              size="sm"
+              label="Copy command"
+            />
+            <Link href={routes.settings} className="hover:text-text hover:underline">
+              Connect a client
+            </Link>
+          </p>
         )}
       </header>
 

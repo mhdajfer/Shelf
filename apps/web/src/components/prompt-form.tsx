@@ -28,7 +28,7 @@ import { describedBy, Field, Input, Textarea } from '@/components/ui/field';
 import { UsePanel } from '@/components/use-panel';
 import { api } from '@/lib/api-client';
 import { ApiError, errorMessage } from '@/lib/api-error';
-import { routes } from '@/lib/routes';
+import { mcpCommand, routes } from '@/lib/routes';
 import { useSession } from '@/lib/session';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +41,8 @@ interface Draft {
   tags: string;
   visibility: Visibility;
   note: string;
+  /** Edited only on an existing prompt: a new one is named from its title by the API. */
+  commandName: string;
 }
 
 const EMPTY: Draft = {
@@ -52,6 +54,7 @@ const EMPTY: Draft = {
   tags: '',
   visibility: 'private',
   note: '',
+  commandName: '',
 };
 
 const fromPrompt = (prompt: PromptDetailDto): Draft => ({
@@ -63,6 +66,7 @@ const fromPrompt = (prompt: PromptDetailDto): Draft => ({
   tags: prompt.tags.join(', '),
   visibility: prompt.visibility,
   note: '',
+  commandName: prompt.commandName ?? '',
 });
 
 const parseTags = (raw: string): string[] => [
@@ -184,6 +188,9 @@ export function PromptForm({ prompt }: { prompt?: PromptDetailDto }) {
       // The API decides a guest's visibility; sending one would be refused.
       ...(isGuest ? {} : { visibility: draft.visibility }),
       ...(draft.note.trim() === '' ? {} : { note: draft.note }),
+      ...(editing && draft.commandName !== initial.commandName
+        ? { commandName: draft.commandName }
+        : {}),
       ...(turnstileToken === null ? {} : { turnstileToken }),
     };
 
@@ -399,6 +406,26 @@ export function PromptForm({ prompt }: { prompt?: PromptDetailDto }) {
             value={draft.visibility}
             onChange={(value) => set('visibility', value)}
           />
+        )}
+
+        {editing && prompt.commandName !== null && (
+          <Field
+            id="commandName"
+            label="Command"
+            hint={`Run it as ${mcpCommand(draft.commandName || 'name')} in Claude Code and other MCP clients.`}
+            error={errors.commandName}
+          >
+            <Input
+              id="commandName"
+              value={draft.commandName}
+              onChange={(event) => set('commandName', event.target.value.toLowerCase())}
+              maxLength={LIMITS.commandNameMax}
+              autoCapitalize="none"
+              spellCheck={false}
+              className="font-mono"
+              {...describedBy('commandName', errors.commandName, true)}
+            />
+          </Field>
         )}
 
         {bodyChanged && (

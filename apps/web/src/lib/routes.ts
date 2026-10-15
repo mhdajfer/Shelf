@@ -15,6 +15,12 @@ export const routes = {
   forgotPassword: '/forgot-password',
 } as const;
 
+/** Where MCP clients connect. */
+export const MCP_URL = process.env.NEXT_PUBLIC_MCP_URL ?? 'http://localhost:4000/mcp';
+
+/** How Claude Code names an MCP prompt from server "shelf": the slash command a user types. */
+export const mcpCommand = (commandName: string): string => `/mcp__shelf__${commandName}`;
+
 /** Where a visitor lands after signing in, unless they were on their way somewhere. */
 export const AFTER_SIGN_IN = '/shelf';
 

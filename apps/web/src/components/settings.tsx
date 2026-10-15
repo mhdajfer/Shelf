@@ -14,6 +14,7 @@ import {
   type SessionUser,
 } from '@shelf/shared';
 
+import { AccessTokens } from '@/components/access-tokens';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { describedBy, Field, Input } from '@/components/ui/field';
@@ -383,6 +384,12 @@ export function Settings() {
         }
       >
         <PasswordForm user={user} />
+      </Section>
+      <Section
+        title="Access"
+        description="Tokens let Claude Code and other MCP clients use your prompts as commands. Each one can be limited to some of your prompts and revoked at any time."
+      >
+        <AccessTokens />
       </Section>
       <Section title="Your data" description="Take your shelf with you, or bring one in.">
         <DataTransfer />

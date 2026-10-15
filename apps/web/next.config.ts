@@ -52,6 +52,8 @@ const nextConfig: NextConfig = {
     /** Where the browser reaches it: same-origin via the dev rewrite, direct in production. */
     NEXT_PUBLIC_API_ORIGIN: isDev ? '' : apiOrigin,
     NEXT_PUBLIC_WEB_ORIGIN: webOrigin,
+    /** The MCP endpoint clients connect to. Always the API itself, in development too. */
+    NEXT_PUBLIC_MCP_URL: `${apiOrigin}/mcp`,
     NEXT_PUBLIC_TURNSTILE_SITE_KEY: turnstileSiteKey,
   },
 
