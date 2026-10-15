@@ -1,15 +1,19 @@
-import { and, asc, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, type SQL, sql } from 'drizzle-orm';
 
 import {
+  commandNameCandidate,
+  slugifyCommandName,
   TRENDING,
   type Category,
+  type PromptSet,
   type PromptStatus,
   type PublicSort,
   type TemplateVariable,
   type Visibility,
 } from '@shelf/shared';
 
-import type { Database, Executor } from '../client.js';
+import type { Database, Executor, Transaction } from '../client.js';
+import { uniqueViolation } from '../errors.js';
 import { promptTags, promptVersions, prompts, tags } from '../schema/prompts.js';
 import { users } from '../schema/users.js';
 import type { Actor } from './actor.js';
@@ -38,6 +42,8 @@ export interface PromptSummary {
   forkedFromId: string | null;
   trendingScore: number;
   pinnedAt: Date | null;
+  /** Null for guest prompts, which have no shelf to be addressed in. */
+  commandName: string | null;
   author: PromptAuthor;
   createdAt: Date;
   updatedAt: Date;
@@ -107,6 +113,7 @@ const summaryColumns = {
   forkCount: prompts.forkCount,
   trendingScore: prompts.trendingScore,
   pinnedAt: prompts.pinnedAt,
+  commandName: prompts.commandName,
   createdAt: prompts.createdAt,
   updatedAt: prompts.updatedAt,
   guestHandle: prompts.guestHandle,
@@ -152,6 +159,7 @@ function toSummary(row: SummaryRow): PromptSummary {
     forkedFromId: row.forkedFromId,
     trendingScore: row.trendingScore,
     pinnedAt: row.pinnedAt,
+    commandName: row.commandName,
     author,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -325,6 +333,109 @@ async function searchOwned(
 }
 
 /**
+ * The part of one user's shelf a grant (an access token, a connected app) can
+ * see. Every read on behalf of a grant composes `inPromptSet`, so a prompt
+ * outside the set is absent from the query, not filtered from its results.
+ */
+export interface PromptSetScope {
+  userId: string;
+  promptSet: PromptSet;
+  /** Set exactly when `promptSet` is `collection`. */
+  collectionId: string | null;
+}
+
+function inPromptSet(scope: PromptSetScope): SQL {
+  const clauses: SQL[] = [
+    sql`${prompts.ownerId} = ${scope.userId}`,
+    sql`${prompts.status} <> 'deleted'`,
+  ];
+  switch (scope.promptSet) {
+    case 'all':
+      break;
+    case 'pinned':
+      clauses.push(sql`${prompts.pinnedAt} IS NOT NULL`);
+      break;
+    case 'collection':
+      clauses.push(
+        scope.collectionId === null
+          ? sql`false`
+          : sql`EXISTS (
+              SELECT 1 FROM collection_items ci
+              JOIN collections c ON c.id = ci.collection_id
+              WHERE ci.prompt_id = ${prompts.id}
+                AND ci.collection_id = ${scope.collectionId}
+                AND c.owner_id = ${scope.userId}
+            )`,
+      );
+      break;
+  }
+  return sql.join(clauses, sql` AND `);
+}
+
+/**
+ * The set in command-name order, one page after `after` (exclusive). Keyed on
+ * the name rather than an offset, so a prompt saved or deleted between pages
+ * cannot shift the next page.
+ */
+async function listInSet(
+  db: Database,
+  scope: PromptSetScope,
+  options: { after?: string; limit?: number } = {},
+): Promise<PromptSummary[]> {
+  const rows = await baseSelect(db)
+    .where(
+      and(
+        inPromptSet(scope),
+        options.after === undefined ? undefined : gt(prompts.commandName, options.after),
+      ),
+    )
+    .orderBy(asc(prompts.commandName))
+    .limit(clampLimit(options.limit));
+  return rows.map(toSummary);
+}
+
+/** One prompt in the set, by id or by command name. Null for anything else. */
+async function findInSet(
+  db: Database,
+  scope: PromptSetScope,
+  key: { id: string } | { commandName: string },
+): Promise<PromptSummary | null> {
+  const match =
+    'id' in key ? sql`${prompts.id} = ${key.id}` : sql`${prompts.commandName} = ${key.commandName}`;
+  const rows = await baseSelect(db)
+    .where(and(inPromptSet(scope), match))
+    .limit(1);
+  const row = rows[0];
+  return row === undefined ? null : toSummary(row);
+}
+
+/**
+ * Full-text search within the set, or the set in command-name order when
+ * there is no query. Tags narrow either way, all of them required.
+ */
+async function searchInSet(
+  db: Database,
+  scope: PromptSetScope,
+  options: { query?: string; tags?: string[]; limit?: number },
+): Promise<PromptSummary[]> {
+  const query = options.query?.trim() ?? '';
+  const clauses = [inPromptSet(scope), ...tagFilters(options.tags ?? [])];
+  if (query === '') {
+    const rows = await baseSelect(db)
+      .where(and(...clauses))
+      .orderBy(asc(prompts.commandName))
+      .limit(clampLimit(options.limit));
+    return rows.map(toSummary);
+  }
+
+  const rows = await baseSelect(db)
+    .where(and(...clauses, matchQuery(query)))
+    .orderBy(desc(matchRank(query)), asc(prompts.commandName))
+    .limit(clampLimit(options.limit));
+  return rows.map(toSummary);
+}
+
+/**
  * Null when the prompt is not readable, so callers return 404 rather than
  * distinguishing "absent" from "someone else's".
  */
@@ -454,6 +565,80 @@ async function replaceTags(db: Executor, promptId: string, names: string[]): Pro
     .onConflictDoNothing();
 }
 
+export const COMMAND_NAME_CONSTRAINT = 'prompts_owner_command_name_key';
+
+/** Candidates checked per query when looking for a free command name. */
+const NAME_BATCH = 20;
+/**
+ * Creates for one owner are serialised by a lock, so a retry is only needed
+ * when a rename takes the chosen name in the same instant.
+ */
+const NAME_ATTEMPTS = 3;
+
+/**
+ * The first of `base`, `base-2`, `base-3`, … that none of the owner's live
+ * prompts uses. Only a starting point: the unique index has the final say.
+ */
+async function freeCommandName(db: Executor, ownerId: string, base: string): Promise<string> {
+  // Bounded by the size of the owner's shelf: every batch that is fully taken
+  // is NAME_BATCH live prompts.
+  for (let start = 1; ; start += NAME_BATCH) {
+    const candidates = Array.from({ length: NAME_BATCH }, (_, offset) =>
+      commandNameCandidate(base, start + offset),
+    );
+    const rows = await db
+      .select({ name: prompts.commandName })
+      .from(prompts)
+      .where(
+        and(
+          eq(prompts.ownerId, ownerId),
+          sql`${prompts.status} <> 'deleted'`,
+          inArray(prompts.commandName, candidates),
+        ),
+      );
+    const taken = new Set(rows.map((row) => row.name));
+    const free = candidates.find((candidate) => !taken.has(candidate));
+    if (free !== undefined) return free;
+  }
+}
+
+/**
+ * Inserts a user's prompt row under a free command name.
+ *
+ * Concurrent creates cannot see each other's uncommitted rows, so without
+ * coordination they all pick the same "free" name and all but one fail. A
+ * transaction-scoped advisory lock on the owner makes them take turns; it is
+ * released at commit and costs nothing for a single create. The insert also
+ * runs in a savepoint, so a name taken by a concurrent rename (which does not
+ * take the lock) can be retried without abandoning the surrounding transaction.
+ */
+async function insertOwnedRow(
+  tx: Transaction,
+  ownerId: string,
+  values: typeof prompts.$inferInsert,
+): Promise<string> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`prompt_command_name:${ownerId}`}, 0))`,
+  );
+  const base = slugifyCommandName(values.title);
+  for (let attempt = 1; ; attempt += 1) {
+    const commandName = await freeCommandName(tx, ownerId, base);
+    try {
+      const [row] = await tx.transaction((savepoint) =>
+        savepoint
+          .insert(prompts)
+          .values({ ...values, ownerId, commandName })
+          .returning({ id: prompts.id }),
+      );
+      if (row === undefined) throw new Error('prompt insert returned no row');
+      return row.id;
+    } catch (error) {
+      if (attempt < NAME_ATTEMPTS && uniqueViolation(error) === COMMAND_NAME_CONSTRAINT) continue;
+      throw error;
+    }
+  }
+}
+
 /**
  * The prompt row and version 1 reference each other, so both inserts and the
  * back-pointer happen in one transaction. A crash halfway cannot leave a prompt
@@ -461,22 +646,26 @@ async function replaceTags(db: Executor, promptId: string, names: string[]): Pro
  */
 async function create(db: Database, input: CreatePromptInput): Promise<string> {
   return db.transaction(async (tx) => {
-    const [prompt] = await tx
-      .insert(prompts)
-      .values({
-        ownerId: input.author.type === 'user' ? input.author.userId : null,
-        guestId: input.author.type === 'guest' ? input.author.guestId : null,
-        guestHandle: input.author.type === 'guest' ? input.author.guestHandle : null,
-        visibility: input.visibility,
-        title: input.title,
-        description: input.description ?? null,
-        category: input.category,
-        modelHint: input.modelHint ?? null,
-        forkedFromId: input.forkedFromId ?? null,
-      })
-      .returning({ id: prompts.id });
+    const values: typeof prompts.$inferInsert = {
+      guestId: input.author.type === 'guest' ? input.author.guestId : null,
+      guestHandle: input.author.type === 'guest' ? input.author.guestHandle : null,
+      visibility: input.visibility,
+      title: input.title,
+      description: input.description ?? null,
+      category: input.category,
+      modelHint: input.modelHint ?? null,
+      forkedFromId: input.forkedFromId ?? null,
+    };
 
-    if (prompt === undefined) throw new Error('prompt insert returned no row');
+    let promptId: string;
+    if (input.author.type === 'user') {
+      promptId = await insertOwnedRow(tx, input.author.userId, values);
+    } else {
+      const [row] = await tx.insert(prompts).values(values).returning({ id: prompts.id });
+      if (row === undefined) throw new Error('prompt insert returned no row');
+      promptId = row.id;
+    }
+    const prompt = { id: promptId };
 
     const [version] = await tx
       .insert(promptVersions)
@@ -639,6 +828,8 @@ export interface UpdatePromptInput {
   visibility?: Visibility;
   pinned?: boolean;
   tags?: string[];
+  /** Throws a unique violation on COMMAND_NAME_CONSTRAINT when the owner already uses it. */
+  commandName?: string;
 }
 
 /** Callers establish ownership with findOwned first; this does not check it. */
@@ -651,6 +842,7 @@ async function updateMeta(db: Database, id: string, input: UpdatePromptInput): P
     if (input.modelHint !== undefined) values.modelHint = input.modelHint;
     if (input.visibility !== undefined) values.visibility = input.visibility;
     if (input.pinned !== undefined) values.pinnedAt = input.pinned ? new Date() : null;
+    if (input.commandName !== undefined) values.commandName = input.commandName;
 
     if (Object.keys(values).length > 0) {
       await tx.update(prompts).set(values).where(eq(prompts.id, id));
@@ -857,6 +1049,9 @@ export const promptRepo = {
   searchPublic,
   listOwned,
   searchOwned,
+  listInSet,
+  findInSet,
+  searchInSet,
   listVersions,
   findVersion,
   listForks,

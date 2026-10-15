@@ -12,8 +12,10 @@ export { ANONYMOUS, guestActor, isAdmin, userActor, type Actor } from './reposit
 
 export {
   promptRepo,
+  COMMAND_NAME_CONSTRAINT,
   FORK_CONSTRAINT,
   MAX_PAGE_SIZE,
+  type PromptSetScope,
   type AddVersionInput,
   type CreatePromptInput,
   type ExportedPromptRecord,
@@ -64,5 +66,12 @@ export {
   type RunRecord,
   type RunStatus,
 } from './repositories/runRepo.js';
+
+export {
+  accessRepo,
+  type AccessTokenRecord,
+  type CreateTokenInput,
+  type ResolvedGrant,
+} from './repositories/accessRepo.js';
 
 export { uniqueViolation } from './errors.js';

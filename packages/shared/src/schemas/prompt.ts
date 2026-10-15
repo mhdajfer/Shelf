@@ -60,6 +60,58 @@ const bodySchema = z
 
 const noteSchema = optionalText(LIMITS.versionNoteMax, 'The version note');
 
+/**
+ * What an MCP client puts after `/mcp__shelf__`. Lowercase words joined by
+ * single hyphens, so it reads the same in every client's command menu. The
+ * database check enforces the same pattern.
+ */
+const COMMAND_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const COMMAND_NAME_FALLBACK = 'prompt';
+
+export const commandNameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(
+    z
+      .string()
+      .min(1, 'Give the command a name.')
+      .max(
+        LIMITS.commandNameMax,
+        `Command names are limited to ${String(LIMITS.commandNameMax)} characters.`,
+      )
+      .regex(COMMAND_NAME_PATTERN, 'Use lowercase letters and numbers, separated by hyphens.'),
+  );
+
+/**
+ * The command name a title starts with. Accents are folded to their base
+ * letter; anything else that is not a letter or digit becomes a separator. A
+ * title with nothing usable in it (emoji, a non-Latin script) gets a generic
+ * name rather than an empty one.
+ */
+export function slugifyCommandName(title: string): string {
+  const slug = title
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .slice(0, LIMITS.commandNameMax)
+    .replace(/^-+|-+$/g, '');
+  return slug === '' ? COMMAND_NAME_FALLBACK : slug;
+}
+
+/**
+ * The `n`th candidate for a base name: the base itself, then `base-2`,
+ * `base-3`, and so on. The base is shortened when needed so the suffix still
+ * fits, which is why the result is never longer than the limit.
+ */
+export function commandNameCandidate(base: string, n: number): string {
+  if (n <= 1) return base;
+  const suffix = `-${String(n)}`;
+  const head = base.slice(0, LIMITS.commandNameMax - suffix.length).replace(/-+$/, '');
+  return `${head === '' ? COMMAND_NAME_FALLBACK : head}${suffix}`;
+}
+
 export const createPromptSchema = z.object({
   title: titleSchema,
   description: optionalText(LIMITS.descriptionMax, 'The description').optional(),
@@ -82,6 +134,7 @@ export const updatePromptSchema = z.object({
   tags: tagsSchema.optional(),
   visibility: z.enum(VISIBILITIES).optional(),
   pinned: z.boolean().optional(),
+  commandName: commandNameSchema.optional(),
   /** Stored with the new version when `body` changes; ignored otherwise. */
   note: noteSchema.optional(),
 });
@@ -164,6 +217,8 @@ export interface PromptDto {
   forkCount: number;
   forkedFromId: string | null;
   pinned: boolean;
+  /** The MCP command name. Shown to the owner only, like `pinned`; null for anyone else. */
+  commandName: string | null;
   author: PromptAuthorDto;
   createdAt: string;
   updatedAt: string;

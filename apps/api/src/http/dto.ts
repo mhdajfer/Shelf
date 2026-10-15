@@ -46,6 +46,7 @@ export function toPromptDto(prompt: PromptSummary, state: ViewerState = NO_STATE
     forkedFromId: prompt.forkedFromId,
     // Pinning is the owner's private bookmark; nobody else learns of it.
     pinned: state.isOwner && prompt.pinnedAt !== null,
+    commandName: state.isOwner ? prompt.commandName : null,
     author: prompt.author,
     createdAt: prompt.createdAt.toISOString(),
     updatedAt: prompt.updatedAt.toISOString(),

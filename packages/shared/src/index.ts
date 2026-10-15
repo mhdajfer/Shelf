@@ -5,3 +5,4 @@ export { trendingScore, TRENDING, type TrendingInput } from './scoring/trending.
 export * from './schemas/prompt.js';
 export * from './schemas/run.js';
 export * from './schemas/transfer.js';
+export * from './schemas/access.js';

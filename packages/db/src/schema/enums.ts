@@ -1,5 +1,7 @@
 import { customType, pgEnum } from 'drizzle-orm/pg-core';
 
+import { PROMPT_SETS } from '@shelf/shared';
+
 export const visibilityEnum = pgEnum('visibility', ['public', 'private']);
 export const promptStatusEnum = pgEnum('prompt_status', ['active', 'hidden', 'deleted']);
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin']);
@@ -17,3 +19,7 @@ export const tsvector = customType<{ data: string; driverData: string }>({
     return 'tsvector';
   },
 });
+
+export const grantKindEnum = pgEnum('grant_kind', ['token', 'app']);
+export const promptSetEnum = pgEnum('prompt_set', PROMPT_SETS);
+export const accessTokenKindEnum = pgEnum('access_token_kind', ['pat', 'access', 'refresh']);

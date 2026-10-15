@@ -3,3 +3,4 @@ export * from './users.js';
 export * from './prompts.js';
 export * from './collections.js';
 export * from './activity.js';
+export * from './access.js';

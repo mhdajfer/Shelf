@@ -12,6 +12,10 @@ export const LIMITS = {
   reportReasonMax: 500,
   maxVariablesPerPrompt: 50,
   maxVariableNameLength: 64,
+  commandNameMax: 48,
+  accessTokenNameMax: 60,
+  /** Live personal access tokens per user. */
+  maxAccessTokensPerUser: 20,
   /** Soft cap. Creation past this returns a clear error rather than failing silently. */
   maxPromptsPerUser: 1000,
 } as const;

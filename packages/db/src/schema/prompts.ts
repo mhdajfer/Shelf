@@ -14,7 +14,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { CATEGORIES, type TemplateVariable } from '@shelf/shared';
+import { CATEGORIES, LIMITS, type TemplateVariable } from '@shelf/shared';
 
 import { promptStatusEnum, tsvector, visibilityEnum } from './enums.js';
 import { users } from './users.js';
@@ -56,6 +56,12 @@ export const prompts = pgTable(
     /** Owner-only favourite marker, surfaced as "Pinned" in the sidebar. */
     pinnedAt: timestamp('pinned_at', { withTimezone: true }),
     /**
+     * The MCP command name, e.g. "commit-message". Assigned from the title at
+     * creation and stored, so renaming a prompt does not rename its command.
+     * Users' prompts only; guest prompts have no shelf to be addressed in.
+     */
+    commandName: text('command_name'),
+    /**
      * Recomputed on a schedule. Stored because sorting by the decay formula at
      * query time cannot use an index.
      */
@@ -71,6 +77,13 @@ export const prompts = pgTable(
     // A guest has no shelf to keep anything on, so guest content is always public.
     check('prompts_guest_is_public_check', sql`guest_id IS NULL OR visibility = 'public'`),
     check('prompts_category_check', sql.raw(`category IN (${CATEGORY_LIST})`)),
+    check('prompts_command_name_check', sql`(owner_id IS NULL) = (command_name IS NULL)`),
+    check(
+      'prompts_command_name_format_check',
+      sql.raw(
+        `command_name ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND length(command_name) <= ${String(LIMITS.commandNameMax)}`,
+      ),
+    ),
 
     index('prompts_search_idx').using('gin', table.searchVector),
     index('prompts_public_new_idx').on(table.visibility, table.status, table.createdAt.desc()),
@@ -87,6 +100,10 @@ export const prompts = pgTable(
     uniqueIndex('prompts_one_fork_per_owner_key')
       .on(table.ownerId, table.forkedFromId)
       .where(sql`forked_from_id IS NOT NULL AND status <> 'deleted'`),
+    // Command names are unique among a user's live prompts; deleting one frees its name.
+    uniqueIndex('prompts_owner_command_name_key')
+      .on(table.ownerId, table.commandName)
+      .where(sql`owner_id IS NOT NULL AND status <> 'deleted'`),
   ],
 );
 

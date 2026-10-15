@@ -2,6 +2,7 @@ import { diffLines } from 'diff';
 import { Router, type Request, type Response } from 'express';
 
 import {
+  COMMAND_NAME_CONSTRAINT,
   creditRepo,
   FORK_CONSTRAINT,
   promptRepo,
@@ -249,6 +250,9 @@ export function createPromptRouter(deps: PromptDeps): Router {
     if (isGuest && input.pinned !== undefined) {
       throw unauthorized('Sign in to pin prompts.');
     }
+    if (isGuest && input.commandName !== undefined) {
+      throw unauthorized('Sign in to use prompts as commands.');
+    }
 
     const visibility = input.visibility ?? prompt.visibility;
     if (visibility === 'public') {
@@ -260,15 +264,25 @@ export function createPromptRouter(deps: PromptDeps): Router {
       });
     }
 
-    await promptRepo.updateMeta(db, prompt.id, {
-      ...(input.title === undefined ? {} : { title: input.title }),
-      ...(input.description === undefined ? {} : { description: input.description }),
-      ...(input.category === undefined ? {} : { category: input.category }),
-      ...(input.modelHint === undefined ? {} : { modelHint: input.modelHint }),
-      ...(input.visibility === undefined ? {} : { visibility: input.visibility }),
-      ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
-      ...(input.tags === undefined ? {} : { tags: input.tags }),
-    });
+    try {
+      await promptRepo.updateMeta(db, prompt.id, {
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.description === undefined ? {} : { description: input.description }),
+        ...(input.category === undefined ? {} : { category: input.category }),
+        ...(input.modelHint === undefined ? {} : { modelHint: input.modelHint }),
+        ...(input.visibility === undefined ? {} : { visibility: input.visibility }),
+        ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
+        ...(input.tags === undefined ? {} : { tags: input.tags }),
+        ...(input.commandName === undefined ? {} : { commandName: input.commandName }),
+      });
+    } catch (error) {
+      if (uniqueViolation(error) === COMMAND_NAME_CONSTRAINT) {
+        throw new AppError('conflict', 'Another prompt on your shelf already uses that command.', {
+          details: [{ field: 'commandName', message: 'Another prompt already uses this command.' }],
+        });
+      }
+      throw error;
+    }
 
     // A save that does not change the body is a metadata edit, not a new version.
     if (input.body !== undefined && input.body !== prompt.body) {

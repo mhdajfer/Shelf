@@ -47,6 +47,8 @@ describe('prompt check constraints', () => {
         ownerId: userId,
         guestId: 'g1',
         guestHandle: 'guest-g1',
+        // Present so the row reaches the single-actor check, not the command-name one.
+        commandName: 'both',
         visibility: 'public',
         title: 'Both',
         category: 'writing',
