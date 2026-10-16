@@ -4,12 +4,12 @@ import { Router, type Request, type Response } from 'express';
 
 import type { Database } from '@shelf/db';
 
+import type { OAuthConfig } from '../oauth/config.js';
 import { logger } from '../observability/logger.js';
 import type { RateLimits } from '../security/rateLimit.js';
 import { bearerAuth, grantOf } from './auth.js';
+import { MCP_PATH } from './path.js';
 import { buildServer } from './server.js';
-
-export const MCP_PATH = '/mcp';
 
 /** The JSON-RPC method and the tool, prompt, or resource it names. Never arguments. */
 function describeCall(body: unknown): { rpc: string; target?: string } {
@@ -54,7 +54,11 @@ function neverStored(res: Response): void {
  * which serves protocol revision 2026-07-28 and answers 2025-era clients
  * statelessly from the same server definition.
  */
-export function createMcpRouter(deps: { db: Database; limits: RateLimits }): Router {
+export function createMcpRouter(deps: {
+  db: Database;
+  limits: RateLimits;
+  oauth: OAuthConfig;
+}): Router {
   const onerror = (error: Error): void => {
     logger.error({ err: error }, 'mcp transport error');
   };

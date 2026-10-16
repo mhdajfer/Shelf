@@ -15,6 +15,8 @@ import type { EmailTransport } from './email/transport.js';
 import { AppError, errorHandler, notFoundHandler } from './http/errors.js';
 import type { LlmProvider } from './llm/provider.js';
 import { createMcpRouter } from './mcp/router.js';
+import { resolveOAuthConfig, type OAuthOptions } from './oauth/config.js';
+import { createOAuthRouter, OPEN_CORS_PATHS } from './oauth/flow.js';
 import { httpLogger } from './observability/logger.js';
 import { createAccessRouter } from './routes/access.js';
 import { createAdminRouter } from './routes/admin.js';
@@ -22,6 +24,7 @@ import { createAuthRouter } from './routes/auth.js';
 import { createCollectionRouter } from './routes/collections.js';
 import { createHealthRouter, type HealthChecks } from './routes/health.js';
 import { createLibraryRouter } from './routes/library.js';
+import { createOAuthConsentRouter } from './routes/oauth.js';
 import { createPromptRouter } from './routes/prompts.js';
 import { createRunRouter } from './routes/runs.js';
 import { createTransferRouter } from './routes/transfer.js';
@@ -39,6 +42,8 @@ export interface AppDeps {
   /** Null when Google credentials are not configured. */
   google: OAuthProvider | null;
   llm: LlmProvider;
+  /** Overrides for the OAuth server's public URLs; tests listen on another port. */
+  oauth?: OAuthOptions;
 }
 
 /**
@@ -47,6 +52,7 @@ export interface AppDeps {
  */
 export function createApp(deps: AppDeps): Express {
   const app = express();
+  const oauth = resolveOAuthConfig(deps.oauth);
 
   // The API sits behind one proxy in every deployment target; without this the
   // rate limiters and IP hashing would see the proxy address for everyone.
@@ -61,20 +67,24 @@ export function createApp(deps: AppDeps): Express {
     }),
   );
 
-  app.use(
-    cors({
-      origin(origin, callback) {
-        // Same-origin and non-browser callers send no Origin header.
-        if (origin === undefined || env.CORS_ALLOWED_ORIGINS.includes(origin)) {
-          callback(null, true);
-          return;
-        }
-        callback(new AppError('forbidden', 'Origin not allowed.'));
-      },
-      credentials: true,
-      maxAge: 600,
-    }),
-  );
+  const sessionCors = cors({
+    origin(origin, callback) {
+      // Same-origin and non-browser callers send no Origin header.
+      if (origin === undefined || env.CORS_ALLOWED_ORIGINS.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new AppError('forbidden', 'Origin not allowed.'));
+    },
+    credentials: true,
+    maxAge: 600,
+  });
+  // OAuth discovery and the token endpoints read no cookie, so any origin may
+  // call them, as a browser-based MCP client needs to. Credentials stay off.
+  const openCors = cors({ origin: '*', maxAge: 600 });
+  app.use((req, res, next) => {
+    (OPEN_CORS_PATHS.has(req.path) ? openCors : sessionCors)(req, res, next);
+  });
 
   // An export file is far larger than any other request body. Its parser runs
   // first; the general one below then sees the body already parsed and skips.
@@ -100,9 +110,14 @@ export function createApp(deps: AppDeps): Express {
     next();
   });
 
+  // The OAuth authorization server's protocol endpoints identify clients, not
+  // users, and never read the session cookie; the consent page that does is
+  // mounted with the session routes below.
+  app.use(createOAuthRouter({ ...deps, oauth }));
+
   // Bearer tokens only, so it sits before the cookie identity and the CSRF
   // check: neither applies to a credential a browser cannot send cross-site.
-  app.use(createMcpRouter(deps));
+  app.use(createMcpRouter({ ...deps, oauth }));
 
   // Everything below knows who is asking and refuses forged writes.
   app.use(identity(deps.db));
@@ -116,6 +131,7 @@ export function createApp(deps: AppDeps): Express {
   app.use(API_PREFIX, createRunRouter(deps));
   app.use(API_PREFIX, createTransferRouter(deps));
   app.use(API_PREFIX, createAccessRouter(deps));
+  app.use(API_PREFIX, createOAuthConsentRouter({ ...deps, oauth }));
   app.use(API_PREFIX, createAdminRouter(deps));
 
   app.use(notFoundHandler);

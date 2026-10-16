@@ -23,6 +23,11 @@ const BUCKETS = {
   model: { points: 20, duration: 60 },
   // Per access grant. A model working through a task makes calls in bursts.
   mcp: { points: 120, duration: 60 },
+  // Per address. Each registration is a row that lives 30 days unless approved.
+  oauthRegister: { points: 10, duration: 60 * 60 },
+  oauthAuthorize: { points: 30, duration: 60 },
+  // Token and revocation requests, per address.
+  oauthToken: { points: 60, duration: 60 },
 } as const;
 
 export type Bucket = keyof typeof BUCKETS;

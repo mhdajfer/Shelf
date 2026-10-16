@@ -332,10 +332,12 @@ export function registerTools(server: McpServer, deps: ToolDeps, grant: McpGrant
     }),
   );
 
-  // A token without write access never sees the write tools. The scope
-  // challenge is the second line: a write tool reached without the scope
-  // answers 403 insufficient_scope.
-  if (!grant.scopes.includes('prompts:write')) return;
+  // A personal access token without write access never sees the write tools:
+  // it cannot be widened, so offering them would only mislead the model. An
+  // app approved over OAuth is offered them, and calling one without the scope
+  // answers 403 insufficient_scope, which lets the client ask the user to
+  // approve the wider grant.
+  if (grant.kind === 'token' && !grant.scopes.includes('prompts:write')) return;
   const scopeChallenge = requireScopes('prompts:read', 'prompts:write');
 
   const bodyField = createPromptSchema.shape.body.describe(

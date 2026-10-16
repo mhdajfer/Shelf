@@ -57,3 +57,63 @@ export interface CreatedAccessTokenDto {
   token: AccessTokenDto;
   secret: string;
 }
+
+/**
+ * What the consent page shows about an MCP client asking for access. Everything
+ * about the client is its own claim; only `publishedBy` has been checked, by
+ * fetching the client's metadata document from that host over HTTPS.
+ */
+export interface OAuthRequestDto {
+  id: string;
+  client: {
+    name: string;
+    /** The host serving the client's metadata document; null for a client registered here. */
+    publishedBy: string | null;
+  };
+  /**
+   * Where approving sends the browser: an app on this computer (a loopback
+   * address), a website, or an app that registered its own URL scheme.
+   */
+  redirect: { kind: 'loopback' | 'web' | 'app'; target: string };
+  /** What the client asked for. The user may approve less. */
+  scopes: AccessScope[];
+  /** The user's settings for this client from an earlier approval, if any. */
+  current: { scopes: AccessScope[]; promptSet: PromptSet; collectionId: string | null } | null;
+  expiresAt: string;
+}
+
+export const oauthDecisionSchema = z
+  .object({
+    approve: z.boolean(),
+    /** Grant `prompts:write` too. Only honoured if the client asked for it. */
+    write: z.boolean().default(false),
+    promptSet: z.enum(PROMPT_SETS).default('all'),
+    collectionId: z.uuid().optional(),
+  })
+  .refine(
+    (input) =>
+      !input.approve || (input.promptSet === 'collection') === (input.collectionId !== undefined),
+    {
+      message: 'Choose a collection, or allow all or pinned prompts.',
+      path: ['collectionId'],
+    },
+  );
+export type OAuthDecisionInput = z.input<typeof oauthDecisionSchema>;
+
+/** Where the consent page sends the browser next: back to the client. */
+export interface OAuthDecisionDto {
+  redirectTo: string;
+}
+
+/** An app the user connected over OAuth, as Settings lists it. */
+export interface ConnectedAppDto {
+  id: string;
+  name: string;
+  publishedBy: string | null;
+  scopes: AccessScope[];
+  promptSet: PromptSet;
+  collection: { id: string; name: string } | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+}

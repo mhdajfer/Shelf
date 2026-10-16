@@ -12,6 +12,7 @@ import {
   forkPromptSchema,
   importEnvelopeSchema,
   loginSchema,
+  oauthDecisionSchema,
   publicListQuerySchema,
   reportPromptSchema,
   resetPasswordSchema,
@@ -109,7 +110,16 @@ export function buildOpenApiDocument(serverUrl: string): ReturnType<typeof creat
         {
           name: 'Access',
           description:
-            'Personal access tokens for the MCP endpoint at `/mcp`. Managed with the browser session; a token cannot manage tokens.',
+            'Personal access tokens and connected apps for the MCP endpoint at `/mcp`. Managed with the browser session; a token cannot manage tokens.',
+        },
+        {
+          name: 'OAuth consent',
+          description: [
+            'The consent page of the OAuth 2.1 authorization server that MCP clients sign in through.',
+            'The protocol endpoints themselves (`/.well-known/oauth-authorization-server`,',
+            '`/oauth/authorize`, `/oauth/token`, `/oauth/register`, `/oauth/revoke`) follow RFC 8414,',
+            '6749, 7591, and 7009 and are described by the metadata document, not here.',
+          ].join(' '),
         },
         { name: 'Admin', description: 'Moderation. 404 for anyone who is not an admin.' },
         { name: 'System', description: 'Health and scheduled work.' },
@@ -573,6 +583,55 @@ export function buildOpenApiDocument(serverUrl: string): ReturnType<typeof creat
               path: z.object({ id: z.uuid().meta({ description: 'A token id.' }) }),
             },
             responses: { '204': { description: 'Revoked.' }, ...failures(401, 404, 429) },
+          },
+        },
+
+        '/access/apps': {
+          get: {
+            tags: ['Access'],
+            summary: 'List the apps you connected over OAuth',
+            description:
+              'Apps that hold a refresh token that has not lapsed, newest approval first. Names are what each app declared, unverified.',
+            responses: { ...ok('The apps.'), ...failures(401) },
+          },
+        },
+        '/access/apps/{id}': {
+          delete: {
+            tags: ['Access'],
+            summary: 'Disconnect an app',
+            description: `Revokes every token the app holds; it must ask again to reconnect. ${WRITE}`,
+            requestParams: {
+              path: z.object({ id: z.uuid().meta({ description: 'A connected app id.' }) }),
+            },
+            responses: { '204': { description: 'Revoked.' }, ...failures(401, 404, 429) },
+          },
+        },
+
+        '/oauth/requests/{id}': {
+          get: {
+            tags: ['OAuth consent'],
+            summary: 'What an app is asking for',
+            description:
+              'The pending authorization request the authorize endpoint sent the browser here with: the app, where approving redirects, and the scopes asked for.',
+            requestParams: {
+              path: z.object({ id: z.uuid().meta({ description: 'A request id.' }) }),
+            },
+            responses: {
+              ...ok('The request.'),
+              ...failures(401, 404),
+            },
+          },
+        },
+        '/oauth/requests/{id}/decision': {
+          post: {
+            tags: ['OAuth consent'],
+            summary: 'Approve or deny an app',
+            description: `Approving creates or updates your grant for the app and answers with \`redirectTo\`: the app's redirect URI with a one-time code. Denying answers with the same URI and \`error=access_denied\`. ${WRITE}`,
+            requestParams: {
+              path: z.object({ id: z.uuid().meta({ description: 'A request id.' }) }),
+            },
+            requestBody: body(oauthDecisionSchema),
+            responses: { ...ok('Where to send the browser.'), ...failures(400, 401, 404, 429) },
           },
         },
 
