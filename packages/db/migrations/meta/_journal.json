@@ -43,6 +43,13 @@
       "when": 1792041348613,
       "tag": "0005_mcp_access",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792120456531,
+      "tag": "0006_oauth",
+      "breakpoints": true
     }
   ]
 }

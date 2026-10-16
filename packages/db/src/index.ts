@@ -70,8 +70,19 @@ export {
 export {
   accessRepo,
   type AccessTokenRecord,
+  type ConnectedAppRecord,
   type CreateTokenInput,
   type ResolvedGrant,
 } from './repositories/accessRepo.js';
+
+export {
+  oauthRepo,
+  type DecidedRequest,
+  type OAuthClientKind,
+  type OAuthClientRecord,
+  type PendingRequest,
+  type RedeemedCode,
+  type RotatedRefresh,
+} from './repositories/oauthRepo.js';
 
 export { uniqueViolation } from './errors.js';

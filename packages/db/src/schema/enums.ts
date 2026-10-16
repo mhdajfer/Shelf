@@ -23,3 +23,8 @@ export const tsvector = customType<{ data: string; driverData: string }>({
 export const grantKindEnum = pgEnum('grant_kind', ['token', 'app']);
 export const promptSetEnum = pgEnum('prompt_set', PROMPT_SETS);
 export const accessTokenKindEnum = pgEnum('access_token_kind', ['pat', 'access', 'refresh']);
+/**
+ * How an OAuth client identified itself: registered here through dynamic
+ * registration, or by a client ID that is the URL of its own metadata document.
+ */
+export const oauthClientKindEnum = pgEnum('oauth_client_kind', ['registered', 'metadata_document']);
