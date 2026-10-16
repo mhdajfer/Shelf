@@ -1,0 +1,14 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "in.mhdajfer/shelf",
+  "title": "Shelf",
+  "description": "Your saved prompts as slash commands, with search over your shelf and a public library.",
+  "version": "1.0.0",
+  "websiteUrl": "https://shelf.mhdajfer.in/docs/mcp",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://shelf.mhdajfer.in/mcp"
+    }
+  ]
+}

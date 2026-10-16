@@ -2,10 +2,10 @@
 
 | | |
 | --- | --- |
-| Status | Accepted. Phases 0–2 implemented; phases 3 and 4 pending |
+| Status | Accepted. Phases 0–4 implemented; the MCP Registry listing awaits publishing from `server.json` |
 | Author | Muhammed Ajfer |
 | Created | 2026-10-14 |
-| Revised | 2026-10-15: retargeted at protocol revision 2026-07-28 and SDK v2; see [Revision notes](#revision-notes) |
+| Revised | 2026-10-15: retargeted at protocol revision 2026-07-28 and SDK v2. 2026-10-16: phases 3 and 4 implemented. See [Revision notes](#revision-notes) |
 | Affects | `apps/api`, `apps/web`, `packages/db`, `packages/shared`, `deploy/Caddyfile` |
 
 ## Summary
@@ -175,11 +175,15 @@ apps/api/src/mcp/
   resources.ts     shelf://prompts/{id}
   naming.ts        command names
 apps/api/src/oauth/                       (Phase 3)
+  config.ts        issuer, resource, and endpoint URLs, all from PUBLIC_API_URL
   metadata.ts      protected resource + authorization server metadata
-  clients.ts       client ID metadata documents, dynamic registration
-  flow.ts          authorize, decision, token, revoke
+  clients.ts       client ID metadata documents (with the SSRF defences), client lookup
+  redirects.ts     redirect URI rules and matching
+  pkce.ts          S256 verification, requested scopes
+  flow.ts          discovery, register, authorize, token, revoke
 apps/api/src/routes/
-  access.ts        session-authenticated token management (REST)
+  access.ts        session-authenticated tokens and connected apps (REST)
+  oauth.ts         the consent page's API: show a request, decide it
 ```
 
 It runs in the API process because that is where the repositories and the privacy filter are. A
@@ -385,7 +389,8 @@ sequenceDiagram
   API-->>B: 302 to /oauth/consent?request=…
   B->>WEB: consent page (signs in first if needed)
   WEB->>API: POST /api/v1/oauth/requests/:id/decision (session + CSRF)
-  API-->>B: 302 to redirect_uri?code&state&iss
+  API-->>WEB: { redirectTo: redirect_uri?code&state&iss }
+  WEB->>B: navigate to redirectTo
   B->>CLI: loopback redirect delivers the code
   CLI->>API: POST /api/v1/oauth/token (code + code_verifier + resource)
   API-->>CLI: access token (1 h) + refresh token (30 d)
@@ -401,7 +406,7 @@ Endpoints:
 | `POST /api/v1/oauth/register` | none, rate limited | RFC 7591 dynamic client registration, for older clients only |
 | `GET /api/v1/oauth/authorize` | none | Validates the request and sends the browser to the consent page |
 | `GET /api/v1/oauth/requests/:id` | session | What the consent page shows |
-| `POST /api/v1/oauth/requests/:id/decision` | session + CSRF | Approve (with a prompt set) or deny |
+| `POST /api/v1/oauth/requests/:id/decision` | session + CSRF | Approve (with a prompt set) or deny; answers with `redirectTo` |
 | `POST /api/v1/oauth/token` | client + PKCE | `authorization_code` and `refresh_token` grants |
 | `POST /api/v1/oauth/revoke` | client | RFC 7009 revocation |
 
@@ -419,7 +424,10 @@ Rules, each with a test:
   `https://shelf.mhdajfer.in/mcp`, and `/mcp` rejects a token issued for anything else. Shelf never
   passes a client's token on to another service.
 - **Refresh tokens rotate.** Each use returns a new refresh token and consumes the old one. Using a
-  consumed refresh token revokes its whole family, which is the signal that it was stolen.
+  consumed refresh token revokes its whole family, which is the signal that it was stolen, with
+  one exception: a second use within 10 seconds of the first is honoured, because a client whose
+  access token lapses while several requests are in flight refreshes from each of them at once.
+  The MCP SDK's own client does exactly this, and without the window it revoked its own session.
 - **Opaque tokens, not JWTs.** One indexed lookup per request is cheap, and revocation takes effect
   on the next call, the same trade-off sessions already make.
 - **Client registration: metadata documents first.** 2026-07-28 deprecates dynamic registration in
@@ -434,7 +442,28 @@ Rules, each with a test:
 The consent page (`apps/web/src/app/oauth/consent/page.tsx`) shows the client's self-declared name
 **marked as unverified**, where it will redirect ("an app on this computer" for loopback), the
 scopes in plain words, and a prompt-set selector. Approving creates or updates the user's grant for
-that client.
+that client. The decision is a `fetch` from the page, so the API answers with `redirectTo` rather
+than a 302 (a fetch would follow the redirect itself), and the page navigates there. A signed-out
+user is sent through sign-in and back, including through Google, which carries a same-site `next`
+path in a short-lived cookie.
+
+Smaller decisions made while implementing:
+
+- `resource` is required at the authorize endpoint and, if sent again at the token endpoint, must
+  match; the token is bound to the one stored with the request either way.
+- Unknown scopes (`openid`, `offline_access`) are ignored rather than refused, and asking for no
+  scope asks for `prompts:read`. Refresh tokens are always issued, so `offline_access` is not
+  advertised.
+- Public clients only: registration answers `token_endpoint_auth_method: none` whatever was asked,
+  and a metadata document asking for anything else is refused.
+- Redirect URIs may also use a native app's private-use scheme (RFC 8252 §7.1, as Cursor does),
+  never one a browser runs itself (`javascript:`, `data:`, `file:`, …).
+- The protocol endpoints that read no cookie (discovery, token, registration, revocation) answer
+  any origin, without credentials, so browser-based clients can use them. `/mcp` itself keeps the
+  origin allowlist.
+- Requests and codes live in one table, `oauth_requests`: a row is a pending consent until it is
+  approved, then carries the code's hash, and is kept a day after it lapses so a replayed code is
+  still recognised.
 
 ### Revocation and account events
 
@@ -456,8 +485,9 @@ Settings → Access names the collection each token is limited to.
 ## Data model
 
 Migration `0005_mcp_access.sql` (Phase 1) adds command names and the grant and token tables, with
-Drizzle definitions in `packages/db/src/schema/access.ts`. The OAuth tables (`oauth_clients`,
-`oauth_codes`, and `access_grants.client_id`) arrive with Phase 3 in their own migration.
+Drizzle definitions in `packages/db/src/schema/access.ts`. Migration `0006_oauth.sql` (Phase 3) adds
+`oauth_clients`, `oauth_requests`, and `access_grants.client_id`; it is shown after the Phase 1
+tables below.
 
 ```sql
 ALTER TABLE prompts ADD COLUMN command_name text;
@@ -507,6 +537,43 @@ CREATE TABLE access_tokens (
 CREATE UNIQUE INDEX access_tokens_hash_key ON access_tokens (token_hash);
 CREATE INDEX access_tokens_grant_idx ON access_tokens (grant_id);
 CREATE INDEX access_tokens_expires_idx ON access_tokens (expires_at);
+```
+
+```sql
+CREATE TYPE oauth_client_kind AS ENUM ('registered', 'metadata_document');
+
+CREATE TABLE oauth_clients (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id           text NOT NULL UNIQUE,   -- an issued UUID, or the metadata document's URL
+  kind                oauth_client_kind NOT NULL,
+  name                text NOT NULL,          -- the client's own claim
+  redirect_uris       text[] NOT NULL CHECK (cardinality(redirect_uris) BETWEEN 1 AND 10),
+  metadata_fetched_at timestamptz,            -- set exactly for metadata documents
+  created_at          timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE access_grants ADD COLUMN client_id uuid REFERENCES oauth_clients(id) ON DELETE CASCADE;
+ALTER TABLE access_grants ADD CHECK ((kind = 'app') = (client_id IS NOT NULL));
+CREATE UNIQUE INDEX access_grants_user_client_key ON access_grants (user_id, client_id)
+  WHERE kind = 'app';
+
+-- A pending consent; once approved, also the one-time code.
+CREATE TABLE oauth_requests (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),  -- the consent page's handle
+  client_id       uuid NOT NULL REFERENCES oauth_clients(id) ON DELETE CASCADE,
+  redirect_uri    text NOT NULL,
+  code_challenge  text NOT NULL,                -- S256 only
+  scopes          text[] NOT NULL,              -- what the client asked for
+  resource        text NOT NULL,
+  state           text,
+  expires_at      timestamptz NOT NULL,         -- 10 minutes to answer
+  grant_id        uuid REFERENCES access_grants(id) ON DELETE CASCADE,
+  code_hash       text UNIQUE,
+  code_expires_at timestamptz,                  -- 60 seconds after approval
+  family_id       uuid,                         -- every token the code produces
+  consumed_at     timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
 ```
 
 A grant's expiry is its token's: a personal access token's grant is deleted with the token, and an
@@ -608,7 +675,7 @@ completion.
 **Done when:** a model saves a new prompt and a new version from Claude Code, both private, and the
 version appears in the web history with its note.
 
-### Phase 3 — OAuth 2.1 (5–7 days)
+### Phase 3 — OAuth 2.1 (5–7 days) — done
 
 The OAuth tables, metadata, registration (metadata documents and dynamic), authorize, the consent
 page, token, refresh rotation, revocation, connected apps in Settings, and revocation on password
@@ -618,10 +685,15 @@ reset.
 `/mcp → Authenticate` connects with no token copied, and every rule in
 [Phase 3: OAuth 2.1](#phase-3-oauth-21-per-the-mcp-authorization-spec) has a passing test.
 
-### Phase 4 — Distribution and docs (1–2 days)
+### Phase 4 — Distribution and docs (1–2 days) — done, except as noted
 
 `/docs/mcp` in the web app with one tab per client; a README section and a short demo recording;
 SECURITY.md updated; a listing in the official MCP Registry.
+
+The setup page, README, and SECURITY.md are done, and each client's tab was checked against its
+documentation on 2026-10-16. Two items need the owner: the demo recording, and publishing
+`server.json` to the registry, which proves control of the `in.mhdajfer` namespace through a DNS
+record on `mhdajfer.in` and is then published with the registry's `mcp-publisher` tool.
 
 **Done when:** a new user goes from the setup page to running a prompt in their client without
 reading anything else.
@@ -659,8 +731,8 @@ Each phase ships on its own and leaves the app working. Phase 1 is useful withou
    by address)? Leaning no for v1: it adds an anonymous surface for little gain.
 2. Is 90 days the right default token lifetime for a CLI tool that people set up once?
 3. Should prompts the user has **upvoted** (not forked) be offered as an optional prompt set?
-4. Once OAuth ships, are personal access tokens still worth offering? Keep them for CI and scripts,
-   where there is no browser to consent in.
+4. Once OAuth ships, are personal access tokens still worth offering? **Yes**: Settings now lists
+   connected apps first and offers tokens for CI, scripts, and machines without a browser.
 
 ## Revision notes
 
@@ -682,6 +754,19 @@ The first draft was checked against protocol revision 2025-11-25 and SDK v1. On 
   metadata documents, and authorization responses now carry `iss` (RFC 9207).
 - **Strict tool schemas.** A non-strict Zod object drops unknown keys, so `visibility: "public"`
   would have been silently ignored rather than refused.
+
+### Implementing phases 3 and 4 (2026-10-16)
+
+- **Concurrent refreshes.** Driving the server with the SDK's own client showed it refreshing twice
+  from one lapsed access token; strict reuse detection then revoked the session it had just
+  refreshed. A second use within 10 seconds is now honoured; anything later still revokes.
+- **The decision answers with JSON**, not a 302, because the consent page calls it with `fetch`.
+- **One table for requests and codes** (`oauth_requests`) instead of `oauth_codes`: a code is a
+  request in its approved state.
+- **Google sign-in returns to the consent page.** It used to land on `/shelf` whatever the user was
+  doing, which would have lost their place mid-connection.
+- **Settings** lists connected apps above access tokens, and the prompt-set and write choices made
+  on consent are offered again the next time the same app asks.
 
 ## What this demonstrates
 

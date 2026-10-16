@@ -60,7 +60,7 @@ flowchart LR
   MAIL["Resend"]
 
   UI -->|"https"| CADDY
-  CADDY -->|"/api/*"| API
+  CADDY -->|"/api/*, /mcp, /.well-known/oauth-*"| API
   CADDY -->|"everything else"| WEB
   WEB -->|"server-side reads"| API
   API --> PG
@@ -69,8 +69,8 @@ flowchart LR
   API --> MAIL
 ```
 
-That is the live deployment: one hostname, with Caddy sending `/api/*` to the API and everything
-else to the web app. The two apps can also be deployed apart, on two sibling subdomains (for
+That is the live deployment: one hostname, with Caddy sending `/api/*`, `/mcp`, and the OAuth
+discovery documents to the API and everything else to the web app. The two apps can also be deployed apart, on two sibling subdomains (for
 example the web app on Vercel and the API on Render); see [Deploying](#deploying).
 
 ```
@@ -288,32 +288,50 @@ columns, so an upvote, a pin, or a trending recompute no longer reshuffles the o
 ## Using prompts from Claude Code and other MCP clients
 
 `/mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server: the second consumer
-the separate API was built for. The design, including what is still to come (OAuth sign-in for
-clients), is in [docs/design/0001-mcp-server.md](docs/design/0001-mcp-server.md).
-
-Create a token in **Settings → Access**, then:
+the separate API was built for. The design is in
+[docs/design/0001-mcp-server.md](docs/design/0001-mcp-server.md), and the setup for each client
+(Claude Code, Codex CLI, Gemini CLI, Cursor, VS Code) is at
+[/docs/mcp](https://shelf.mhdajfer.in/docs/mcp).
 
 ```bash
-claude mcp add --transport http --scope user shelf https://shelf.mhdajfer.in/mcp \
-  --header "Authorization: Bearer shelf_pat_…"
+claude mcp add --transport http --scope user shelf https://shelf.mhdajfer.in/mcp
+# then, in Claude Code: /mcp → shelf → Authenticate, and approve in the browser
 ```
 
 - Every prompt becomes a slash command, `/mcp__shelf__<command-name>`, with its `{{variables}}`
   as arguments. A command name comes from the title when the prompt is created and stays put when
   the title changes; the owner can rename it in the editor.
 - Tools let the client's model search the shelf and the public library, read and render prompts,
-  and, with a token that allows it, save new prompts and versions. Nothing saved this way is
-  public, and nothing can be deleted.
-- A token can be limited to pinned prompts or one collection, expires after 30, 90, or 365 days,
-  and is revoked from Settings, by a password reset, or by deleting its collection.
+  and, if the user allowed it, save new prompts and versions. Nothing saved this way is public,
+  and nothing can be deleted.
+- **Signing in is OAuth 2.1.** Shelf is its own authorization server: the client discovers it from
+  the 401 on `/mcp`, identifies itself with a client ID metadata document (or registers
+  dynamically), and the user approves it on a consent page, choosing whether it may save prompts
+  and which prompts it sees (all, pinned, or one collection). Codes need PKCE with S256, tokens are
+  bound to `/mcp`, access tokens last an hour, and refresh tokens rotate on every use.
+- **Personal access tokens** are the alternative for scripts, CI, and machines without a browser:
+  created in Settings, shown once, limited the same ways, and expiring after 30, 90, or 365 days.
+- Both kinds are listed in Settings and revoked there, by a password reset, or by deleting the
+  collection they are limited to. Every credential is stored as a SHA-256 hash and checked on
+  every request; there are no JWTs.
 - The endpoint serves protocol revision 2026-07-28 and answers clients on the 2025 handshake from
-  the same definitions. It keeps no sessions: each request builds a server for its token.
+  the same definitions. It keeps no sessions: each request builds a server for its credential.
 
-| Method and path                  | What it does                                     |
-| -------------------------------- | ------------------------------------------------ |
-| `POST /mcp`                      | The MCP endpoint. Bearer token only, no cookies  |
-| `GET` / `POST /access/tokens`    | List tokens, or create one (the secret, once)    |
-| `DELETE /access/tokens/:id`      | Revoke a token                                   |
+| Method and path                                   | What it does                                       |
+| ------------------------------------------------- | -------------------------------------------------- |
+| `POST /mcp`                                       | The MCP endpoint. Bearer token only, no cookies    |
+| `GET /.well-known/oauth-protected-resource/mcp`   | RFC 9728: which authorization server guards `/mcp` |
+| `GET /.well-known/oauth-authorization-server`     | RFC 8414: the authorization server's endpoints     |
+| `POST /oauth/register`                            | RFC 7591 dynamic registration, for older clients   |
+| `GET /oauth/authorize`                            | Starts sign-in; sends the browser to consent       |
+| `POST /oauth/token`, `POST /oauth/revoke`         | Code and refresh grants; RFC 7009 revocation       |
+| `GET /oauth/requests/:id`, `POST …/decision`      | The consent page's API (session and CSRF)          |
+| `GET /access/apps`, `DELETE /access/apps/:id`     | List and disconnect apps                           |
+| `GET` / `POST /access/tokens`                     | List tokens, or create one (the secret, once)      |
+| `DELETE /access/tokens/:id`                       | Revoke a token                                     |
+
+Paths without a leading `/.well-known` or `/mcp` are under `/api/v1`. The server is described for
+the [MCP Registry](https://registry.modelcontextprotocol.io) in [`server.json`](server.json).
 
 ## Model calls
 
@@ -627,6 +645,9 @@ formats but has not been run against them; the live site uses the setup above.
    also wakes the API.
 6. **Google sign-in.** Register `https://api.<domain>/api/v1/auth/oauth/google/callback` as the
    redirect URI.
+7. **MCP clients** connect to `https://api.<domain>/mcp`. The OAuth issuer, metadata, and
+   endpoints all derive from `PUBLIC_API_URL`, and the consent page from `PUBLIC_WEB_URL`, so
+   nothing else needs configuring.
 
 Either image can be built locally from the repository root:
 
@@ -651,7 +672,7 @@ See [SECURITY.md](SECURITY.md) for what is defended, where, and how each defence
 | 8     | Command palette, shortcuts, import/export, dark mode toggle, admin     | done   |
 | 9     | Full test pass, accessibility audit, security checklist, deploy config | done   |
 | 10    | MCP server with personal access tokens ([design](docs/design/0001-mcp-server.md), phases 0–2) | done |
-| 11    | OAuth 2.1 for MCP clients, and per-client setup docs (design phases 3–4) | next   |
+| 11    | OAuth 2.1 for MCP clients, and per-client setup docs (design phases 3–4) | done   |
 
 ## Known limitations
 

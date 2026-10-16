@@ -36,7 +36,7 @@ Please do not open a public issue for it.
 | Google sign-in cannot be used to take over, or be taken over | Links only on a Google-verified email; an unverified password signup loses its password and sessions on link | **tested**: `auth.spec.ts` |
 | OAuth callback is bound to the browser that started it | `state` cookie compared in constant time, plus PKCE | **tested**: a forged state is refused |
 | Deleting an account needs the password, or the typed handle | `POST /auth/delete-account` | **tested** |
-| Post-sign-in redirect cannot leave the site | `safeNext` accepts same-site paths only | review |
+| Post-sign-in redirect cannot leave the site | `safeNext` accepts same-site paths only, and the API applies the same rule to the path carried through Google sign-in | **tested** for Google: `//host`, absolute URLs, and backslashes land on `/shelf` |
 
 ## Request forgery and cross-origin
 
@@ -60,8 +60,35 @@ Please do not open a public issue for it.
 | A read-only token cannot write | Write tools are not registered without `prompts:write`, and carry a scope challenge besides | **tested** |
 | Nothing written over MCP is public, and nothing can be deleted | `create_prompt` always saves private; strict tool schemas refuse unknown keys such as `visibility` | **tested** |
 | Tool failures do not leak internals | Unexpected errors become a generic message and go to the log | review |
-| Tokens die with the account's credentials | Password reset and a Google takeover of an unverified account revoke them all | **tested** for reset |
+| Tokens and connected apps die with the account's credentials | Password reset and a Google takeover of an unverified account revoke them all | **tested** for reset |
 | Responses are never stored | `Cache-Control: no-store, no-transform`, replacing the SDK's own header | **tested** |
+
+### OAuth sign-in for MCP clients
+
+Shelf is the authorization server for `/mcp` (`apps/api/src/oauth/`), so clients connect without a
+token being copied. Every rule below is tested in `apps/api/src/oauth.spec.ts` against the MCP
+SDK's own client, unless marked otherwise.
+
+| Defence | Where | Checked by |
+| --- | --- | --- |
+| PKCE with S256 is required; `plain` and a missing challenge are refused | `oauth/flow.ts`, `oauth/pkce.ts` | **tested**, and the verifier check in `oauth.test.ts` |
+| Nothing is sent to a redirect URI the client did not register | Exact match, except any port on a registered loopback URI (RFC 8252); a mismatch goes to Shelf's own error page | **tested** |
+| Redirect URIs cannot be plain HTTP off loopback, carry a fragment or credentials, or use a scheme a browser runs itself (`javascript:`, `data:`, …) | `oauth/redirects.ts`, checked at registration and on every metadata document; the consent page checks the scheme again before navigating | **tested** |
+| Every authorization response carries `iss` (RFC 9207) | `withParams(…, { iss })` on success, denial, and error | **tested**: the SDK client validates it |
+| A code lives 60 seconds, is bound to its client, redirect URI, and PKCE challenge, and is consumed in one statement | `oauthRepo.redeemCode` | **tested** |
+| A replayed code revokes every token issued from it | Token family on the request row | **tested** |
+| Tokens are bound to `/mcp` (RFC 8707) | Required at authorize, checked at token, and checked again by the bearer middleware | **tested**: a token for another resource gets 401 |
+| Refresh tokens rotate; reuse revokes the family | `oauthRepo.rotateRefresh`. A second use within 10 seconds counts as the same client refreshing from two requests at once and is honoured | **tested**, including the window |
+| A refresh token presented by another client is treated as stolen | Family revoked | **tested** |
+| Revocation (RFC 7009) only reaches the presenting client's tokens | `oauthRepo.findFamilyForClient` | **tested** |
+| Public clients only; no secrets are issued | Registration answers `token_endpoint_auth_method: none` whatever was asked | **tested** |
+| Fetching a client ID metadata document cannot reach the internal network | HTTPS only, no redirects, 5 seconds, 64 kB; every resolved address must be public, and the socket connects to the address that was checked | **tested**: `oauth.test.ts` refuses loopback by literal and by name |
+| The consent page does not vouch for the app | The name is marked as the app's own; only the metadata document's host is shown as checked; the page heading never uses the name | review; **tested** in `e2e/oauth.spec.ts` |
+| Consent needs the session and the CSRF token; a request is answered once and lapses after 10 minutes | `routes/oauth.ts` | **tested** |
+| The OAuth protocol endpoints never read the session cookie | Mounted before `identity`; open CORS without credentials on discovery, token, registration, and revocation only | **tested**: the session API still refuses other origins |
+| Registration, authorization, and token requests are rate limited per address | `oauthRegister`, `oauthAuthorize`, `oauthToken` buckets | review |
+| Connected apps are listed and disconnected in Settings, and revoked by a password reset | `routes/access.ts`, `routes/auth.ts` | **tested** |
+| Abandoned registrations do not accumulate | A client with no grant 30 days after registering is deleted by the scheduler | **tested** in `packages/db/src/oauth.spec.ts` |
 
 ## Injection and untrusted content
 
