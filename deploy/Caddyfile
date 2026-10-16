@@ -13,6 +13,12 @@
 		reverse_proxy api:4000
 	}
 
+	# OAuth discovery for MCP clients: the protected resource and authorization
+	# server metadata. The OAuth endpoints themselves are under /api/*.
+	handle /.well-known/oauth-* {
+		reverse_proxy api:4000
+	}
+
 	handle {
 		encode zstd gzip
 		reverse_proxy web:3000
