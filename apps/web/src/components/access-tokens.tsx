@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
 
@@ -19,7 +20,7 @@ import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/
 import { describedBy, Field, Input } from '@/components/ui/field';
 import { api } from '@/lib/api-client';
 import { ApiError, errorMessage } from '@/lib/api-error';
-import { MCP_URL } from '@/lib/routes';
+import { MCP_URL, routes } from '@/lib/routes';
 import { SHELF_SUMMARY_KEY } from '@/lib/shelf-queries';
 import { formatDate } from '@/lib/utils';
 
@@ -201,7 +202,10 @@ function Created({ created, onDone }: { created: CreatedAccessTokenDto; onDone: 
       </div>
       <p className="text-text-muted">
         Other MCP clients connect to <span className="font-mono">{MCP_URL}</span> with the token as
-        a bearer token.
+        a bearer token.{' '}
+        <Link href={routes.mcpDocs} className="text-accent underline">
+          Setup for each client
+        </Link>
       </p>
       <div>
         <Button size="sm" variant="ghost" onClick={onDone}>

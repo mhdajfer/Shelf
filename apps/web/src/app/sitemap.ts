@@ -18,6 +18,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   return [
     { url: origin, changeFrequency: 'hourly', priority: 1 },
+    { url: `${origin}${routes.mcpDocs}`, changeFrequency: 'monthly', priority: 0.5 },
     ...entries.map((entry) => ({
       url: `${origin}${routes.prompt(entry.id)}`,
       lastModified: entry.updatedAt,

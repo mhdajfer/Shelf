@@ -13,6 +13,10 @@ export const routes = {
     next === undefined ? '/sign-in' : `/sign-in?next=${encodeURIComponent(next)}`,
   signUp: '/sign-up',
   forgotPassword: '/forgot-password',
+  /** Where the API's OAuth authorize endpoint sends the browser. */
+  oauthConsent: (requestId: string) => `/oauth/consent?request=${encodeURIComponent(requestId)}`,
+  /** Setup instructions for each MCP client. */
+  mcpDocs: '/docs/mcp',
 } as const;
 
 /** Where MCP clients connect. */
