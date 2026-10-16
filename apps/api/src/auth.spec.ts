@@ -2,6 +2,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { OAuthProvider } from './auth/google.js';
+import { env } from './config/env.js';
 import { createRateLimits } from './security/rateLimit.js';
 import {
   createApiHarness,
@@ -314,10 +315,10 @@ describe('google sign-in', () => {
       }),
   });
 
-  async function completeFlow(provider: OAuthProvider) {
+  async function completeFlow(provider: OAuthProvider, query = '') {
     const app = harness.appWith({ google: provider });
     const browser = await openBrowser(app);
-    const start = await browser.get('/auth/oauth/google');
+    const start = await browser.get(`/auth/oauth/google${query}`);
     const state = new URL(start.headers.location as string).searchParams.get('state') ?? '';
     const callback = await browser.get(`/auth/oauth/google/callback?code=abc&state=${state}`);
     return { browser, start, callback };
@@ -335,6 +336,18 @@ describe('google sign-in', () => {
 
     const me = (await browser.get('/auth/me')).body as MeBody;
     expect(me.user).toMatchObject({ email: EMAIL, emailVerified: true });
+  });
+
+  it('returns to the page that sent the user to sign in, if it is on the site', async () => {
+    const provider = fakeGoogle({ subject: 'g-1', email: EMAIL });
+    const consent = '/oauth/consent?request=0f9e3c2a-1b2c-4d5e-8f90-123456789abc';
+    const back = await completeFlow(provider, `?next=${encodeURIComponent(consent)}`);
+    expect(back.callback.headers.location).toBe(`${env.PUBLIC_WEB_URL}${consent}`);
+
+    for (const next of ['//evil.example/x', 'https://evil.example/', '/\\evil.example']) {
+      const away = await completeFlow(provider, `?next=${encodeURIComponent(next)}`);
+      expect(away.callback.headers.location).toMatch(/\/shelf$/);
+    }
   });
 
   it('returns the same account on a second sign-in', async () => {

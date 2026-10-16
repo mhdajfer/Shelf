@@ -7,6 +7,8 @@ export const GUEST_COOKIE = 'shelf_guest';
 export const CSRF_COOKIE = 'shelf_csrf';
 export const OAUTH_STATE_COOKIE = 'shelf_oauth_state';
 export const OAUTH_VERIFIER_COOKIE = 'shelf_oauth_verifier';
+/** Where to land after Google sign-in, such as back on an MCP client's consent page. */
+export const OAUTH_NEXT_COOKIE = 'shelf_oauth_next';
 
 /**
  * One place decides cookie scope. In production COOKIE_DOMAIN is the parent

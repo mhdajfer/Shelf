@@ -88,12 +88,16 @@ const OAUTH_ERRORS: Record<string, string> = {
 
 function GoogleButton() {
   const { features } = useSession();
+  const next = useSearchParams().get('next');
   if (!features.google) return null;
+  // Carried through Google and back, so signing in on the way to an app's
+  // consent page returns there. The API applies the same same-site rule.
+  const query = next !== null && safeNext(next) === next ? `?next=${encodeURIComponent(next)}` : '';
   return (
     <>
       <Button asChild className="w-full">
         {/* A full navigation, not a fetch: the API answers with a redirect to Google. */}
-        <a href={`${API_BASE}/auth/oauth/google`}>Continue with Google</a>
+        <a href={`${API_BASE}/auth/oauth/google${query}`}>Continue with Google</a>
       </Button>
       <div className="flex items-center gap-3 text-sm text-text-subtle">
         <span className="h-px flex-1 bg-border" />

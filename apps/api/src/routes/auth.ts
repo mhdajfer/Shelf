@@ -25,6 +25,7 @@ import {
 
 import {
   cookieOptions,
+  OAUTH_NEXT_COOKIE,
   OAUTH_STATE_COOKIE,
   OAUTH_VERIFIER_COOKIE,
   readCookie,
@@ -64,6 +65,17 @@ const RESET_TTL_MS = HOUR_MS;
 const OAUTH_COOKIE_TTL_MS = 10 * 60 * 1000;
 
 const clientKey = (req: Request): string => req.ip ?? 'unknown';
+
+/**
+ * A path on the web app to return to after Google sign-in, or null. Only
+ * same-site paths: anything else would make sign-in an open redirect. The web
+ * app's `safeNext` applies the same rule.
+ */
+function sameSitePath(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 2000) return null;
+  if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) return null;
+  return value;
+}
 
 /** Admin is configured by address and earned by proving control of it. */
 const roleFor = (email: string): UserRole =>
@@ -347,7 +359,7 @@ export function createAuthRouter(deps: AuthDeps): Router {
     res.json({ ok: true });
   });
 
-  router.get('/oauth/google', (_req, res) => {
+  router.get('/oauth/google', (req, res) => {
     if (google === null) {
       throw new AppError('upstream_unavailable', 'Google sign-in is not configured.');
     }
@@ -355,6 +367,9 @@ export function createAuthRouter(deps: AuthDeps): Router {
     const options = cookieOptions({ maxAgeMs: OAUTH_COOKIE_TTL_MS });
     res.cookie(OAUTH_STATE_COOKIE, state, options);
     res.cookie(OAUTH_VERIFIER_COOKIE, codeVerifier, options);
+    const next = sameSitePath(req.query.next);
+    if (next === null) res.clearCookie(OAUTH_NEXT_COOKIE, cookieOptions());
+    else res.cookie(OAUTH_NEXT_COOKIE, next, options);
     res.redirect(google.createAuthorizationUrl(state, codeVerifier).toString());
   });
 
@@ -365,10 +380,12 @@ export function createAuthRouter(deps: AuthDeps): Router {
     const finish = (response: Response): void => {
       response.clearCookie(OAUTH_STATE_COOKIE, cookieOptions());
       response.clearCookie(OAUTH_VERIFIER_COOKIE, cookieOptions());
+      response.clearCookie(OAUTH_NEXT_COOKIE, cookieOptions());
     };
 
     const storedState = readCookie(req, OAUTH_STATE_COOKIE);
     const codeVerifier = readCookie(req, OAUTH_VERIFIER_COOKIE);
+    const next = sameSitePath(readCookie(req, OAUTH_NEXT_COOKIE)) ?? '/shelf';
     const { code, state } = req.query;
     finish(res);
 
@@ -424,7 +441,7 @@ export function createAuthRouter(deps: AuthDeps): Router {
     }
 
     await startSession(db, res, user.id);
-    res.redirect(`${env.PUBLIC_WEB_URL}/shelf`);
+    res.redirect(`${env.PUBLIC_WEB_URL}${next}`);
   });
 
   return router;
