@@ -15,6 +15,7 @@ import {
 } from '@shelf/shared';
 
 import { AccessTokens } from '@/components/access-tokens';
+import { ConnectedApps } from '@/components/connected-apps';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { describedBy, Field, Input } from '@/components/ui/field';
@@ -386,8 +387,14 @@ export function Settings() {
         <PasswordForm user={user} />
       </Section>
       <Section
-        title="Access"
-        description="Tokens let Claude Code and other MCP clients use your prompts as commands. Each one can be limited to some of your prompts and revoked at any time."
+        title="Connected apps"
+        description="Claude Code and other MCP clients you signed in to with your Shelf account. Disconnecting one cuts it off at once."
+      >
+        <ConnectedApps />
+      </Section>
+      <Section
+        title="Access tokens"
+        description="For clients that cannot sign in through a browser, such as scripts and CI. Each token can be limited to some of your prompts and revoked at any time."
       >
         <AccessTokens />
       </Section>
