@@ -155,3 +155,68 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm audit --audit-level=high
+
+  # The production images, built only once every check above has passed and
+  # tagged with the commit. The server never builds: deploy/deploy.sh pulls the
+  # images for the commit it has checked out, so a commit whose checks failed
+  # has no images and cannot be deployed.
+  images:
+    name: publish images
+    needs: [verify, integration, e2e, audit]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'mhdajfer/Shelf'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io/mhdajfer
+      # The web image has its public URL compiled in, so it is built for one
+      # hostname. deploy/deploy.sh refuses an image whose label does not match
+      # SITE_HOST in the server's .env.
+      SITE_HOST: shelf.mhdajfer.in
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.REGISTRY }}/shelf-api:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.REGISTRY }}/shelf-web:${{ github.sha }}
+          build-args: |
+            PUBLIC_WEB_URL=https://${{ env.SITE_HOST }}
+            PUBLIC_API_URL=https://${{ env.SITE_HOST }}
+            API_INTERNAL_URL=http://api:4000
+            TURNSTILE_SITE_KEY=${{ vars.TURNSTILE_SITE_KEY }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            in.mhdajfer.shelf.site-host=${{ env.SITE_HOST }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max

@@ -2,8 +2,13 @@
 # it on one hostname, Postgres and Redis beside them. Nothing but Caddy is
 # reachable from outside.
 #
+# The server does not build. CI publishes the api and web images for every
+# commit on main that passes its checks, tagged with the commit, and
+# ./deploy.sh pulls the images for the commit checked out here and records
+# that commit as SHELF_TAG in .env:
+#
 #   cp .env.example .env    # then fill it in
-#   docker compose up -d --build
+#   ./deploy.sh
 #
 # One hostname means one origin: the browser calls /api on the same host, so
 # the session cookie is host-only and COOKIE_DOMAIN stays unset.
@@ -28,23 +33,15 @@ services:
       - api
 
   web:
-    build:
-      context: ..
-      dockerfile: apps/web/Dockerfile
-      args:
-        PUBLIC_WEB_URL: https://${SITE_HOST}
-        PUBLIC_API_URL: https://${SITE_HOST}
-        API_INTERNAL_URL: http://api:4000
-        TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+    # Built by CI for SITE_HOST, with API_INTERNAL_URL http://api:4000.
+    image: ghcr.io/mhdajfer/shelf-web:${SHELF_TAG:?run ./deploy.sh, which sets SHELF_TAG in .env}
     restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy
 
   api:
-    build:
-      context: ..
-      dockerfile: apps/api/Dockerfile
+    image: ghcr.io/mhdajfer/shelf-api:${SHELF_TAG:?run ./deploy.sh, which sets SHELF_TAG in .env}
     restart: unless-stopped
     # Optional keys (Gemini, Resend, Google, Turnstile, ADMIN_EMAILS) are read
     # from .env only when they are set there; an empty value is not "unset".

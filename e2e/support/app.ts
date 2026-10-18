@@ -98,6 +98,20 @@ export async function expectAccessible(page: Page): Promise<void> {
   // Scanning before it lands reports a missing title that no reader would see.
   await expect(page).toHaveTitle(/\S/);
 
+  // Axe measures contrast at the opacity an element has right now, so a toast
+  // caught fading in reports a failure no reader would see once it settles.
+  // Two frames first, so a transition started by a just-applied attribute is
+  // running; endless animations (spinners) are not waited for.
+  await page.evaluate(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
+        .map((animation) => animation.finished.catch(() => undefined)),
+    );
+  });
+
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();

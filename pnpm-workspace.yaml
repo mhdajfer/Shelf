@@ -20,8 +20,11 @@ allowBuilds:
 # drizzle-kit reaches esbuild 0.18 through the deprecated @esbuild-kit loader,
 # which carries GHSA-67mh-4wv8-2f99. Dev-only and about esbuild's dev server,
 # which nothing here runs, but the fix costs nothing.
+# postcss (through vite and Tailwind) still allows source-map-js 1.2.1, which
+# carries GHSA-68fv-2mgg-jv7q. Build-time only, and the fix costs nothing.
 overrides:
   esbuild: '>=0.25.0'
+  source-map-js: '>=1.2.2'
 
 catalog:
   '@types/node': ^24.19.0
