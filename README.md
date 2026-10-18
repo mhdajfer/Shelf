@@ -585,37 +585,53 @@ proxy.
 | Service    | What it does                                                                   |
 | ---------- | ------------------------------------------------------------------------------ |
 | `caddy`    | The only service with public ports. Gets and renews the TLS certificate, sends `/api/*` to the API and everything else to the web app |
-| `web`      | `apps/web/Dockerfile`, a production Next.js build                              |
-| `api`      | `apps/api/Dockerfile`; applies migrations, then listens                        |
+| `web`      | `ghcr.io/mhdajfer/shelf-web`, from `apps/web/Dockerfile`: a production Next.js build |
+| `api`      | `ghcr.io/mhdajfer/shelf-api`, from `apps/api/Dockerfile`; applies migrations, then listens |
 | `postgres` | Postgres 17, data in a named volume                                            |
 | `redis`    | Redis 7 with append-only persistence                                           |
 
-What the server needs: Docker with the Compose plugin, a DNS `A` record for the hostname pointing
-at it, and ports 80 and 443 open (Caddy needs both for the certificate). 2 GB of RAM is enough if
-some swap is configured, since building the web image peaks at about 1.4 GB.
+The server never builds. When every CI check on a commit to `main` passes, the `publish images` job
+builds the api and web images and pushes them to the GitHub Container Registry, tagged with the
+commit. A release goes out only when someone runs `git pull` on the server: a post-merge hook runs
+[`deploy/deploy.sh`](deploy/deploy.sh), which pulls the two images for the checked-out commit, backs
+up the database, records the commit as `SHELF_TAG` in `deploy/.env`, and restarts what changed. A
+commit whose checks failed has no images, so it cannot be deployed.
+
+What the server needs: Docker with the Compose plugin, git, a DNS `A` record for the hostname
+pointing at it, and ports 80 and 443 open (Caddy needs both for the certificate). The images are
+public, so pulling them needs no registry login.
 
 ```bash
-# on the server, with the repository checked out
-cd deploy
-cp .env.example .env          # set SITE_HOST and generate the four secrets
-docker compose up -d --build
-docker compose ps             # api, web, postgres, and redis should report healthy
+# once, on the server
+git clone https://github.com/mhdajfer/Shelf.git /opt/shelf && cd /opt/shelf
+git config pull.ff only
+printf '#!/bin/sh
+exec deploy/deploy.sh
+' > .git/hooks/post-merge && chmod +x .git/hooks/post-merge
+cp deploy/.env.example deploy/.env   # set SITE_HOST and generate the four secrets
+deploy/deploy.sh
+
+# every release
+git pull                             # deploys; run deploy/deploy.sh again if CI had not finished
 ```
 
 - **One hostname, one origin.** The browser calls `/api` on the same host, so the session cookie is
   host-only and `COOKIE_DOMAIN` stays unset. CORS is pinned to `https://$SITE_HOST`.
 - **The web image is tied to the hostname.** `PUBLIC_WEB_URL` and `PUBLIC_API_URL` are compiled into
-  the bundle, the CSP, and the sitemap, so changing `SITE_HOST` means rebuilding `web`, not just
-  restarting it. The API reads its settings at start, so a changed key needs only
+  the bundle, the CSP, and the sitemap, so CI builds it for the `SITE_HOST` set in
+  `.github/workflows/ci.yml`, and `deploy.sh` refuses an image built for a different hostname than
+  the one in `deploy/.env`. The API reads its settings at start, so a changed key needs only
   `docker compose up -d api`.
 - **Server components skip the proxy.** The web container reaches the API at `http://api:4000` over
   the Compose network (`API_INTERNAL_URL`), forwarding the visitor's cookies.
 - **Optional features** turn on when their keys are set in `deploy/.env`: Gemini for real test runs,
   Resend for email, Google sign-in, Turnstile, and `ADMIN_EMAILS`. Leave a key commented out, not
   empty, to keep its feature off.
-- **Updating.** Bring the new source onto the server and run `docker compose up -d --build`.
-  Migrations run when the API container starts, before it listens, and are forward-only. Data lives
-  in named volumes and survives a rebuild.
+- **Rolling back.** `git checkout <commit> && deploy/deploy.sh`, then `git checkout main` before the
+  next `git pull`. Migrations run when the API container starts, before it listens, and are
+  forward-only, so going back across a migration also means restoring the dump `deploy.sh` wrote in
+  `~/shelf-backups` before that release. It keeps the last ten dumps, and the previous release's
+  images. Data lives in named volumes and survives a redeploy.
 - **The seed script refuses to run in production.** A fresh deployment starts with an empty library.
 
 ### Two origins: Vercel and Render
@@ -695,7 +711,7 @@ See [SECURITY.md](SECURITY.md) for what is defended, where, and how each defence
   the global daily LLM cap bounds the damage, and neither makes this airtight. Anything that must
   not be abused requires an account.
 - **The live site is one server.** Postgres, Redis, and both apps share a single host, so it is a
-  single point of failure, and deploys are a rebuild on that host with a short restart.
+  single point of failure, and a deploy restarts the apps on that host, a short outage.
 - **Free tiers sleep.** On the two-origin setup, Render and Neon free instances idle out, so the
   first request after a quiet period can take several seconds.
 - **Public listings paginate by offset, not by cursor.** Keyset pagination over `trending_score` is
