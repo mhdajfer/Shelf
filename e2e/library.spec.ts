@@ -83,7 +83,14 @@ test.describe('a prompt page', () => {
     const vote = page.getByRole('button', { name: /upvote/i }).first();
     const before = Number((await vote.textContent())?.trim());
 
+    // The button flips before the request finishes, so wait for the response:
+    // it sets the guest cookie that attributes the vote to this visitor, and a
+    // reload sent before the browser stores it would arrive without one.
+    const voted = page.waitForResponse(
+      (response) => response.url().endsWith('/vote') && response.request().method() === 'PUT',
+    );
     await vote.click();
+    expect((await voted).ok()).toBe(true);
     await expect(page.getByRole('button', { name: /^Remove upvote/ }).first()).toHaveText(
       String(before + 1),
     );
